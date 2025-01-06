@@ -1,0 +1,15 @@
+version: "3"
+
+services:
+  db:
+    image: mariadb:10.5
+    ports: ['3307:3306']
+    volumes: [./db:/var/lib/mysql]
+    environment:
+      MYSQL_USER: local
+      MYSQL_PASSWORD: local
+      MYSQL_DATABASE: local
+      MYSQL_ROOT_PASSWORD: local
+
+volumes:
+  db:
