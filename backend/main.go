@@ -1,13 +1,23 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"maps"
+	"math/rand/v2"
 	"net/http"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
+	"github.com/antihax/goesi/esi"
+	"github.com/antihax/goesi/optional"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
 	"go.uber.org/zap"
@@ -16,17 +26,30 @@ import (
 
 const (
 	esiUserAgent = "brave-bpc - Al Heamer"
+
+	headerPages       = "X-Pages"
+	headerErrorRemain = "X-Esi-Error-Limit-Remain" // errors remaining this window
+	headerErrorReset  = "X-Esi-Error-Limit-Reset"  // seconds until the next error window
 )
 
-var (
-	httpClient = &http.Client{Timeout: 10 * time.Second}
-)
+type appConfig struct {
+	AllianceWhitelist    []int32 `json:"alliances,omitempty"`     // Alliances allowed to log into this service
+	CorporationWhitelist []int32 `json:"corporations,omitempty"`  // Corporations allowed to log into this service
+	AdminCorp            int32   `json:"admin_corp,omitempty"`    // Corporation that provides the service
+	AdminCharacter       int32   `json:"admin_char,omitempty"`    // The character used to poll corporate data
+	MaxContracts         int32   `json:"max_contracts,omitempty"` // Maximum number of contracts an account can open
+}
 
 type app struct {
+	config  *appConfig
 	logger  *zap.Logger
 	dao     *dao
 	session *sessions.CookieStore
 	esi     *goesi.APIClient
+	etags   map[int]string
+	esiVars map[string]string
+	bpos    map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+	bpcs    map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
 }
 
 func main() {
@@ -42,7 +65,8 @@ func main() {
 	app := &app{
 		logger:  logger,
 		session: newCookieStore(),
-		esi:     goesi.NewAPIClient(httpClient, esiUserAgent),
+		esi:     goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
+		esiVars: map[string]string{},
 	}
 	app.loadEnv()
 
@@ -57,20 +81,251 @@ func main() {
 		app.dao.runMigrations(logger)
 	}
 
+	app.config = &appConfig{
+		AllianceWhitelist: []int32{
+			99003214, // Brave Collective
+			99010079, // Brave United
+		},
+		CorporationWhitelist: []int32{
+			98445423, // Brave Industries
+			98363855, // Nothing Industries
+			98544197, // Valor Shipyards
+		},
+		AdminCorp:    98544197,
+		MaxContracts: 2,
+	}
+	app.config = app.dao.loadAppConfig(logger, app.config)
+
 	http.HandleFunc("/", app.root)
 	http.HandleFunc("/login", app.login)
-	http.HandleFunc("/add", app.loginAdd)
-	http.HandleFunc("/auth", app.auth)
+	http.HandleFunc("/login/char", app.addCharToAccount)
+	http.HandleFunc("/login/scope", app.addScopeToAccount)
+	http.HandleFunc("/config", app.printConfig)
 
-	logger.Debug("listening on port 2727")
-	logger.Fatal("error serving http", zap.Error(http.ListenAndServe("localhost:2727", nil)))
+	done := make(chan struct{})
+	go app.ticker(done)
+	port := 2727
+	logger.Info("http service listening", zap.Int("port", port))
+	logger.Fatal("error serving http", zap.Error(http.ListenAndServe(fmt.Sprintf("%s:%d", "localhost", port), nil)))
+	done <- struct{}{}
+}
+
+func (app *app) ticker(done <-chan struct{}) {
+	logger := app.logger.Named("ticker")
+	time.Sleep(3 * time.Second)
+	bpos, bpcs, err := app.updateBlueprintInventory(logger)
+	ticker := time.NewTicker(60 * time.Minute)
+	if err != nil {
+		logger.Error("error updating blueprint inventory", zap.Error(err))
+	} else {
+		app.bpos = bpos
+		app.bpcs = bpcs
+	}
+	for {
+		select {
+		case <-done:
+			logger.Info("exiting ticker loop")
+			return
+
+		case <-ticker.C:
+			// 1 minute jitter window
+			switch os.Getenv("ENVIRONMENT") {
+			case "prod", "production":
+				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
+			}
+			bpos, bpcs, err = app.updateBlueprintInventory(logger)
+			if err != nil {
+				if errors.Is(err, errErrorsExceeded) {
+					time.Sleep(5 * time.Minute)
+					ticker.Reset(60 * time.Minute)
+				}
+			} else {
+				app.bpos = bpos
+				app.bpcs = bpcs
+			}
+		}
+	}
+}
+
+var errErrorsExceeded error = fmt.Errorf("too many errors")
+
+type itemLocation struct {
+	parent     int64
+	locationId int64
+	blueprints esi.GetCorporationsCorporationIdBlueprints200OkList
+}
+
+func sameBlueprintQuality(a esi.GetCorporationsCorporationIdBlueprints200Ok, b esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
+	return a.TypeId == b.TypeId &&
+		a.MaterialEfficiency == b.MaterialEfficiency &&
+		a.TimeEfficiency == b.TimeEfficiency &&
+		a.Runs == b.Runs
+}
+
+// filter location before running through this func
+func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) (
+	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
+	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
+) {
+	bpos := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
+	bpcs := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
+
+	for _, bp := range blueprints {
+		var (
+			m   map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+			qty int32
+		)
+		switch bp.Quantity {
+		case -2: // BPC
+			m = bpcs
+			qty = 1
+		case -1: // researched BPO
+			m = bpos
+			qty = 1
+		default: // BPO stack > 0
+			m = bpos
+			qty = bp.Quantity
+		}
+
+		idx := -1
+		if _, ok := m[bp.TypeId]; !ok {
+			m[bp.TypeId] = esi.GetCorporationsCorporationIdBlueprints200OkList{}
+		} else {
+			idx = slices.IndexFunc(m[bp.TypeId], func(e esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
+				return sameBlueprintQuality(e, bp)
+			})
+		}
+
+		if idx == -1 { // equivalent blueprint not found
+			b := bp
+			b.Quantity = qty
+			m[bp.TypeId] = append(m[bp.TypeId], b)
+		} else {
+			m[bp.TypeId][idx].Quantity += qty
+		}
+	}
+
+	return bpos, bpcs
+}
+
+func (app *app) updateBlueprintInventory(logger *zap.Logger) (
+	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
+	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
+	error,
+) {
+	tsps := app.dao.getTokenForCharacter(logger, 95154016, []string{"esi-corporations.read_blueprints.v1"})
+	toks := app.createTokens(tsps)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	esiCtx := context.WithValue(ctx, goesi.ContextOAuth2, toks[0].token)
+	defer cancel()
+	etag := optional.EmptyString()
+	if v, ok := app.etags[int(app.config.AdminCorp)]; ok {
+		etag = optional.NewString(v)
+	}
+
+	//tok, _ := toks[0].token.Token()
+	blueprints, resp, err := app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
+		&esi.GetCorporationsCorporationIdBlueprintsOpts{
+			IfNoneMatch: etag,
+			Page:        optional.NewInt32(1),
+		})
+
+	if err != nil {
+		logger.Error("error fetching blueprints", zap.Error(err))
+		return nil, nil, fmt.Errorf("could not fetch first page of blueprints: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK && resp.StatusCode >= http.StatusBadRequest {
+		// some other error happened. print to logs
+		var buf []byte
+		resp.Body.Read(buf)
+		logger.Debug("status not 200", zap.String("status_code", resp.Status), zap.String("body", string(buf)))
+	}
+
+	pages, _ := strconv.ParseInt(resp.Header.Get(headerPages), 10, 64)
+	for page := int32(2); page <= int32(pages); page++ {
+		var bp esi.GetCorporationsCorporationIdBlueprints200OkList
+		bp, resp, err = app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
+			&esi.GetCorporationsCorporationIdBlueprintsOpts{
+				IfNoneMatch: etag,
+				Page:        optional.NewInt32(page),
+			})
+
+		if err != nil {
+			logger.Warn("error fetching blueprints", zap.Error(err))
+			//return nil, nil, fmt.Errorf("could not fetch first page of blueprints: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < http.StatusOK && resp.StatusCode >= http.StatusBadRequest {
+			// some other error happened. print to logs
+			var buf []byte
+			resp.Body.Read(buf)
+			logger.Warn("status not 200", zap.String("status_code", resp.Status), zap.String("body", string(buf)))
+		}
+
+		blueprints = append(blueprints, bp...)
+	}
+
+	// TODO: filter blueprint locations
+	bpos, bpcs := coalesceBlueprints(blueprints)
+	locations := buildItemLocationMap(blueprints)
+	_ = locations
+
+	logger.Debug("successfully fetched blueprints")
+	return bpos, bpcs, nil
+}
+
+func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) map[int64]esi.GetCorporationsCorporationIdBlueprints200OkList {
+	locations := make(map[int64]esi.GetCorporationsCorporationIdBlueprints200OkList)
+	for _, bp := range blueprints {
+		if _, ok := locations[bp.LocationId]; !ok {
+			locations[bp.LocationId] = esi.GetCorporationsCorporationIdBlueprints200OkList{bp}
+			continue
+		}
+		locations[bp.LocationId] = append(locations[bp.LocationId], bp)
+	}
+	return locations
 }
 
 func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	s, _ := app.session.Get(r, cookieName)
 	var values string
-	for k, v := range s.Values {
-		values = values + fmt.Sprintf("%s: %v<br/>", k, v)
+	var bp strings.Builder
+	if !s.IsNew {
+		for k, v := range s.Values {
+			values = values + fmt.Sprintf("%s: %v<br/>", k, v)
+		}
+
+		keys := slices.Collect(maps.Keys(app.bpcs))
+		names, resp, err := app.esi.ESI.UniverseApi.PostUniverseNames(context.Background(), keys, nil)
+		if err != nil {
+			http.Error(w, "error fetching type names", http.StatusInternalServerError)
+			return
+		}
+		if resp.StatusCode != http.StatusOK {
+			http.Error(w, "error fetching type names status no ok", http.StatusInternalServerError)
+			return
+		}
+
+		nameMap := func() map[int32]string {
+			nm := make(map[int32]string, len(names))
+			for _, v := range names {
+				if v.Category == string(glue.NameCategory_InventoryType) {
+					nm[v.Id] = v.Name
+				}
+			}
+			return nm
+		}()
+
+		for typeId, list := range app.bpcs {
+			bp.WriteString("<details><summary>" + nameMap[typeId] + "</summary><p>")
+			for _, v := range list {
+				bp.WriteString(fmt.Sprintf("<div>ME: %d / TE: %d / Runs: %d / Quantity: %d</div>", v.MaterialEfficiency, v.TimeEfficiency, v.Runs, v.Quantity))
+			}
+			bp.WriteString("</p></details>")
+		}
 	}
 
 	body := `
@@ -79,9 +334,11 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 ` + values + `
 <ul>
 <li><a href="/login">login</a>
-<li><a href="/add">add character</a>
-<li><a href="/auth">add scopes</a>
+<li><a href="/login/char">add character</a>
+<li><a href="/login/scope">add scopes</a>
+<li><a href="/config">config</a>
 </ul>
+` + bp.String() + `
 </body>
 </html>
 `
@@ -93,7 +350,7 @@ func (app *app) login(w http.ResponseWriter, r *http.Request) {
 	app.doLogin(w, r, nil, authTypeLogin)
 }
 
-func (app *app) loginAdd(w http.ResponseWriter, r *http.Request) {
+func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
 	s, _ := app.session.Get(r, cookieName)
 	if s.IsNew {
@@ -105,7 +362,7 @@ func (app *app) loginAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // director login
-func (app *app) auth(w http.ResponseWriter, r *http.Request) {
+func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
 	s, _ := app.session.Get(r, cookieName)
 	if s.IsNew {
@@ -115,7 +372,26 @@ func (app *app) auth(w http.ResponseWriter, r *http.Request) {
 
 	// create rows with refresh token
 	app.doLogin(w, r, []string{
-		"esi-corporations.read_blueprints.v1",
-		"esi-industry.read_corporation_jobs.v1",
+		string(glue.EsiScope_AssetsReadCorporationAssets_v1),
+		string(glue.EsiScope_CorporationsReadBlueprints_v1),
+		string(glue.EsiScope_IndustryReadCorporationJobs_v1),
 	}, authTypeAddScopes)
+}
+
+// print out the app config data
+func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {
+	body := `
+<html>
+<body>
+` + fmt.Sprintf("%+v", *app.config) + `
+<ul>
+<li><a href="/login">login</a>
+<li><a href="/login/char">add character</a>
+<li><a href="/login/scope">add scopes</a>
+<li><a href="/config">config</a>
+</ul>
+</body>
+</html>
+`
+	w.Write([]byte(body))
 }

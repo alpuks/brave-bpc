@@ -13,17 +13,8 @@ import (
 	"github.com/antihax/goesi"
 	"github.com/gorilla/sessions"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 )
-
-// TODO: replace with db store
-var loginAlliances = []int32{
-	99003214, // Brave Collective
-	99010079, // Brave United
-}
-var adminCorps = []int32{
-	98445423, // Brave Industries
-	98363855, // Nothing Industries
-}
 
 const (
 	authUnauthorized = 0
@@ -83,6 +74,37 @@ func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []stri
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
+type scopeSourcePair struct {
+	scope string
+	token oauth2.TokenSource
+}
+
+func (app *app) createTokens(tsps []scopeRefreshPair) []scopeSourcePair {
+	var esiScopes []string
+	for _, tsp := range tsps {
+		esiScopes = append(esiScopes, tsp.scope)
+	}
+	ssoAuth := goesi.NewSSOAuthenticatorV2(
+		&http.Client{Timeout: 10 * time.Second},
+		os.Getenv(envAppId),
+		os.Getenv(envAppSecret),
+		os.Getenv(envAppRedirect),
+		esiScopes)
+
+	var tokens []scopeSourcePair
+	for _, tsp := range tsps {
+		tok := ssoAuth.TokenSource(&oauth2.Token{
+			RefreshToken: tsp.token,
+		})
+		tokens = append(tokens, scopeSourcePair{
+			scope: tsp.scope,
+			token: tok,
+		})
+	}
+
+	return tokens
+}
+
 func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Session, code string) {
 	sessionStateValue := s.Values[sessionState].(string)
 	queryState := r.URL.Query().Get("state")
@@ -133,12 +155,17 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 		return
 	}
 
-	if !slices.Contains(loginAlliances, charData.AllianceId) {
-		logger.Warn("character not in alliance whitelist",
-			zap.Int32("character_id", v.CharacterID),
-			zap.String("character_name", v.CharacterName))
-		http.Error(w, "access denied", http.StatusForbidden)
-		return
+	if len(app.config.AllianceWhitelist) > 0 || len(app.config.CorporationWhitelist) > 0 {
+		if !slices.Contains(app.config.AllianceWhitelist, charData.AllianceId) {
+			if !slices.Contains(app.config.CorporationWhitelist, charData.CorporationId) {
+				logger.Warn("character not in corp or alliance whitelist",
+					zap.Int32("character_id", v.CharacterID),
+					zap.String("character_name", v.CharacterName))
+				http.Error(w, "access denied", http.StatusForbidden)
+				return
+			}
+		}
+		// no alliance or corp whitelist has been set, let anyone login
 	}
 
 	var userId int64
@@ -181,7 +208,7 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 
 	s.Values[sessionUserId] = userId
 	s.Values[sessionLevel] = authAuthorized
-	if slices.Contains(adminCorps, charData.CorporationId) {
+	if charData.CorporationId == app.config.AdminCorp {
 		s.Values[sessionLevel] = authAdmin
 	}
 

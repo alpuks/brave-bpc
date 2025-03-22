@@ -2,6 +2,8 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -22,6 +24,64 @@ func newDao(db *sql.DB) *dao {
 	return &dao{
 		db: db,
 	}
+}
+
+func (d *dao) loadAppConfig(logger *zap.Logger, config *appConfig) *appConfig {
+	var strConfig []byte
+	if err := d.db.QueryRow("SELECT config FROM config LIMIT 1").Scan(&strConfig); err != nil {
+		logger.Error("failed to read config from db", zap.Error(err))
+		return nil
+	}
+	conf := &appConfig{
+		AllianceWhitelist:    slices.Clone(config.AllianceWhitelist),
+		CorporationWhitelist: slices.Clone(config.CorporationWhitelist),
+		AdminCorp:            config.AdminCorp,
+		MaxContracts:         config.MaxContracts,
+	}
+	json.Unmarshal(strConfig, conf)
+	return conf
+}
+
+type scopeRefreshPair struct {
+	token string
+	scope string
+}
+
+func (d *dao) getTokenForCharacter(logger *zap.Logger, characterId int32, roles []string) []scopeRefreshPair {
+	logger = logger.With(zap.Int32("character_id", characterId), zap.Strings("roles", roles))
+
+	params := newSqlParams()
+	rows, err := d.db.Query(`
+SELECT s.scope, t.refresh_token
+FROM scope s
+	LEFT JOIN token t
+		ON t.toon_id = s.toon_id
+	LEFT JOIN toon o
+		ON o.id = s.toon_id
+WHERE o.character_id = `+sqlAddParam(params, characterId)+`
+AND s.scope IN(`+sqlAddParams(params, roles)+`)
+`, *params...)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		logger.Error("could not fetch refresh token", zap.Error(err))
+		return nil
+	}
+
+	var tsps []scopeRefreshPair
+	for rows.Next() {
+		var tsp scopeRefreshPair
+		err := rows.Scan(&tsp.scope, &tsp.token)
+		if err != nil {
+			logger.Error("error scanning row", zap.Error(err))
+		}
+		tsps = append(tsps, tsp)
+	}
+
+	if rows.Err() != nil {
+		logger.Error("error parsing rows", zap.Error(err))
+		return nil
+	}
+
+	return tsps
 }
 
 // userid, found, created
@@ -115,12 +175,12 @@ func newSqlParams() *sqlParams {
 	return &sqlParams{}
 }
 
-func sqlParamsAdd(p *sqlParams, param any) string {
+func sqlAddParam(p *sqlParams, param any) string {
 	*p = append(*p, param)
 	return "?"
 }
 
-func sqlAddVariadic(p *sqlParams, params ...any) string {
+func sqlAddParams(p *sqlParams, params ...any) string {
 	var paramCount int
 	for _, param := range params {
 		switch v := reflect.ValueOf(param); v.Kind() {
@@ -162,9 +222,9 @@ func (d *dao) addScopes(logger *zap.Logger, userId int64, toonId int64, scopes [
 SELECT scope
 FROM scope
 WHERE
-user_id = ` + sqlParamsAdd(params, userId) + ` AND
-toon_id = ` + sqlParamsAdd(params, toonId) + ` AND
-scope IN(` + sqlAddVariadic(params, scopes) + `)
+user_id = ` + sqlAddParam(params, userId) + ` AND
+toon_id = ` + sqlAddParam(params, toonId) + ` AND
+scope IN(` + sqlAddParams(params, scopes) + `)
 `
 	rows, err = d.db.Query(query, *params...)
 
@@ -203,7 +263,7 @@ scope IN(` + sqlAddVariadic(params, scopes) + `)
 	params = newSqlParams()
 	res, err = tx.Exec(`
 INSERT INTO token (toon_id, refresh_token)
-VALUES (`+sqlAddVariadic(params, toonId, token.RefreshToken)+`)`, *params...)
+VALUES (`+sqlAddParams(params, toonId, token.RefreshToken)+`)`, *params...)
 	if err != nil {
 		logger.Error("error inserting toon", zap.Error(err))
 		return err
@@ -218,7 +278,7 @@ VALUES (`+sqlAddVariadic(params, toonId, token.RefreshToken)+`)`, *params...)
 	params = newSqlParams()
 	scopeValues := make([]string, len(scopes))
 	for i, scope := range scopes {
-		scopeValues[i] = fmt.Sprintf("(%s)", sqlAddVariadic(params, userId, toonId, tokenId, scope))
+		scopeValues[i] = fmt.Sprintf("(%s)", sqlAddParams(params, userId, toonId, tokenId, scope))
 	}
 
 	_, err = tx.Exec(`
