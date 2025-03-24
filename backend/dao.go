@@ -6,15 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/AlHeamer/brave-bpc/sqlparams"
 	"github.com/gorilla/sessions"
 	"github.com/pressly/goose/v3"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 )
+
+type scopeRefreshPair struct {
+	token string
+	scope string
+}
 
 type dao struct {
 	db *sql.DB
@@ -36,21 +41,17 @@ func (d *dao) loadAppConfig(logger *zap.Logger, config *appConfig) *appConfig {
 		AllianceWhitelist:    slices.Clone(config.AllianceWhitelist),
 		CorporationWhitelist: slices.Clone(config.CorporationWhitelist),
 		AdminCorp:            config.AdminCorp,
+		AdminCharacter:       config.AdminCharacter,
 		MaxContracts:         config.MaxContracts,
 	}
 	json.Unmarshal(strConfig, conf)
 	return conf
 }
 
-type scopeRefreshPair struct {
-	token string
-	scope string
-}
-
 func (d *dao) getTokenForCharacter(logger *zap.Logger, characterId int32, roles []string) []scopeRefreshPair {
 	logger = logger.With(zap.Int32("character_id", characterId), zap.Strings("roles", roles))
 
-	params := newSqlParams()
+	params := sqlparams.New()
 	rows, err := d.db.Query(`
 SELECT s.scope, t.refresh_token
 FROM scope s
@@ -58,9 +59,9 @@ FROM scope s
 		ON t.toon_id = s.toon_id
 	LEFT JOIN toon o
 		ON o.id = s.toon_id
-WHERE o.character_id = `+sqlAddParam(params, characterId)+`
-AND s.scope IN(`+sqlAddParams(params, roles)+`)
-`, *params...)
+WHERE o.character_id = `+params.AddParam(characterId)+`
+AND s.scope IN(`+params.AddParams(roles)+`)
+`, params...)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		logger.Error("could not fetch refresh token", zap.Error(err))
 		return nil
@@ -167,44 +168,6 @@ VALUES(?, ?, ?)
 	return toonId, false, true
 }
 
-// annoying workaround for mysql driver.
-// can't pass a slice to IN(?), must be IN(?,?..n)
-type sqlParams []any
-
-func newSqlParams() *sqlParams {
-	return &sqlParams{}
-}
-
-func sqlAddParam(p *sqlParams, param any) string {
-	*p = append(*p, param)
-	return "?"
-}
-
-func sqlAddParams(p *sqlParams, params ...any) string {
-	var paramCount int
-	for _, param := range params {
-		switch v := reflect.ValueOf(param); v.Kind() {
-		case reflect.Slice:
-			if v.Len() == 0 {
-				continue
-			}
-			paramCount += v.Len()
-			*p = slices.Grow(*p, v.Len())
-
-			switch v.Index(0).Kind() {
-			case reflect.String:
-				for i := range v.Len() {
-					*p = append(*p, v.Index(i).Interface().(string))
-				}
-			}
-		default:
-			paramCount++
-			*p = append(*p, param)
-		}
-	}
-	return "?" + strings.Repeat(",?", paramCount-1)
-}
-
 func (d *dao) addScopes(logger *zap.Logger, userId int64, toonId int64, scopes []string, token *oauth2.Token, session *sessions.Session) error {
 	if len(scopes) == 0 {
 		// no need to store a token if there's no scopes
@@ -217,16 +180,16 @@ func (d *dao) addScopes(logger *zap.Logger, userId int64, toonId int64, scopes [
 	var err error
 	var res sql.Result
 	var rows *sql.Rows
-	params := newSqlParams()
+	params := sqlparams.New()
 	query := `
 SELECT scope
 FROM scope
 WHERE
-user_id = ` + sqlAddParam(params, userId) + ` AND
-toon_id = ` + sqlAddParam(params, toonId) + ` AND
-scope IN(` + sqlAddParams(params, scopes) + `)
+user_id = ` + params.AddParam(userId) + ` AND
+toon_id = ` + params.AddParam(toonId) + ` AND
+scope IN(` + params.AddParams(scopes) + `)
 `
-	rows, err = d.db.Query(query, *params...)
+	rows, err = d.db.Query(query, params...)
 
 	if err != nil && err != sql.ErrNoRows {
 		logger.Error("error fetching existing roles", zap.Error(err))
@@ -260,10 +223,11 @@ scope IN(` + sqlAddParams(params, scopes) + `)
 		return err
 	}
 
-	params = newSqlParams()
+	params = sqlparams.New()
 	res, err = tx.Exec(`
 INSERT INTO token (toon_id, refresh_token)
-VALUES (`+sqlAddParams(params, toonId, token.RefreshToken)+`)`, *params...)
+VALUES (`+params.AddParams(toonId, token.RefreshToken)+`)
+`, params...)
 	if err != nil {
 		logger.Error("error inserting toon", zap.Error(err))
 		return err
@@ -275,15 +239,15 @@ VALUES (`+sqlAddParams(params, toonId, token.RefreshToken)+`)`, *params...)
 		return err
 	}
 
-	params = newSqlParams()
+	params = sqlparams.New()
 	scopeValues := make([]string, len(scopes))
 	for i, scope := range scopes {
-		scopeValues[i] = fmt.Sprintf("(%s)", sqlAddParams(params, userId, toonId, tokenId, scope))
+		scopeValues[i] = fmt.Sprintf("(%s)", params.AddParams(userId, toonId, tokenId, scope))
 	}
 
 	_, err = tx.Exec(`
 INSERT INTO scope (user_id, toon_id, token_id, scope)
-VALUES`+strings.Join(scopeValues, ","), *params...)
+VALUES`+strings.Join(scopeValues, ","), params...)
 	if err != nil {
 		logger.Error("error inserting scopes", zap.Error(err))
 		return err
@@ -322,4 +286,20 @@ func (d *dao) runMigrations(logger *zap.Logger) {
 	if err = goose.Up(d.db, "migrations"); err != nil {
 		logger.Fatal("unable to up migrations", zap.Error(err))
 	}
+}
+
+func (dao *dao) createRequisition(characterId int32, blueprints []byte) error {
+	var err error
+	params := sqlparams.New()
+	_, err = dao.db.Exec(`
+INSERT INTO requisition_order
+(character_id, blueprints)
+VALUES (`+params.AddParams(characterId, blueprints)+`)
+`, params...)
+	return err
+}
+
+func (dao *dao) updateRequisition() error {
+	var err error
+	return err
 }

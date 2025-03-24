@@ -18,8 +18,10 @@ import (
 	"github.com/antihax/goesi"
 	"github.com/antihax/goesi/esi"
 	"github.com/antihax/goesi/optional"
+	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -41,15 +43,17 @@ type appConfig struct {
 }
 
 type app struct {
-	config  *appConfig
-	logger  *zap.Logger
-	dao     *dao
-	session *sessions.CookieStore
-	esi     *goesi.APIClient
-	etags   map[int]string
-	esiVars map[string]string
-	bpos    map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
-	bpcs    map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+	config           *appConfig
+	logger           *zap.Logger
+	dao              *dao
+	session          *sessions.CookieStore
+	esi              *goesi.APIClient
+	bpos             map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+	bpcs             map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+	groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
+	groupTree        map[int32][]int32
+	requisitionLocks map[int64]int32
+	flake            *snowflake.Node
 }
 
 func main() {
@@ -62,11 +66,16 @@ func main() {
 	logger := newDefaultLogger(logLevel)
 	defer logger.Sync()
 
+	snowflake.Epoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	flake, err := snowflake.NewNode(1)
+	if err != nil {
+		logger.Fatal("failed to start snowflake", zap.Error(err))
+	}
 	app := &app{
 		logger:  logger,
 		session: newCookieStore(),
 		esi:     goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
-		esiVars: map[string]string{},
+		flake:   flake,
 	}
 	app.loadEnv()
 
@@ -91,28 +100,35 @@ func main() {
 			98363855, // Nothing Industries
 			98544197, // Valor Shipyards
 		},
-		AdminCorp:    98544197,
-		MaxContracts: 2,
+		AdminCorp:      98544197,
+		AdminCharacter: 95154016,
+		MaxContracts:   2,
 	}
 	app.config = app.dao.loadAppConfig(logger, app.config)
 
-	http.HandleFunc("/", app.root)
-	http.HandleFunc("/login", app.login)
-	http.HandleFunc("/login/char", app.addCharToAccount)
-	http.HandleFunc("/login/scope", app.addScopeToAccount)
-	http.HandleFunc("/config", app.printConfig)
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/", app.root)
+	mux.HandleFunc("/login", app.login)
+	mux.HandleFunc("/login/char", app.addCharToAccount)
+	mux.HandleFunc("/login/scope", app.addScopeToAccount)
+	mux.HandleFunc("/config", app.printConfig)
+
+	app.createApiHandlers(mux)
+	handler := timerMiddleware(mux)
 
 	done := make(chan struct{})
 	go app.ticker(done)
 	port := 2727
 	logger.Info("http service listening", zap.Int("port", port))
-	logger.Fatal("error serving http", zap.Error(http.ListenAndServe(fmt.Sprintf("%s:%d", "localhost", port), nil)))
+	logger.Fatal("error serving http", zap.Error(http.ListenAndServe(fmt.Sprintf("%s:%d", "localhost", port), handler)))
 	done <- struct{}{}
 }
 
 func (app *app) ticker(done <-chan struct{}) {
 	logger := app.logger.Named("ticker")
 	time.Sleep(3 * time.Second)
+	//app.buildMarketTree()
 	bpos, bpcs, err := app.updateBlueprintInventory(logger)
 	ticker := time.NewTicker(60 * time.Minute)
 	if err != nil {
@@ -173,15 +189,13 @@ func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200
 	for _, bp := range blueprints {
 		var (
 			m   map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
-			qty int32
+			qty int32 = 1
 		)
 		switch bp.Quantity {
 		case -2: // BPC
 			m = bpcs
-			qty = 1
 		case -1: // researched BPO
 			m = bpos
-			qty = 1
 		default: // BPO stack > 0
 			m = bpos
 			qty = bp.Quantity
@@ -213,23 +227,21 @@ func (app *app) updateBlueprintInventory(logger *zap.Logger) (
 	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
 	error,
 ) {
-	tsps := app.dao.getTokenForCharacter(logger, 95154016, []string{"esi-corporations.read_blueprints.v1"})
+	tsps := app.dao.getTokenForCharacter(logger, app.config.AdminCharacter, []string{string(glue.EsiScope_CorporationsReadBlueprints_v1)})
 	toks := app.createTokens(tsps)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	esiCtx := context.WithValue(ctx, goesi.ContextOAuth2, toks[0].token)
-	defer cancel()
-	etag := optional.EmptyString()
-	if v, ok := app.etags[int(app.config.AdminCorp)]; ok {
-		etag = optional.NewString(v)
+	if len(toks) == 0 {
+		return nil, nil, errors.New("error creating esi token")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	esiCtx := context.WithValue(ctx, goesi.ContextOAuth2, toks[0].token)
 
 	//tok, _ := toks[0].token.Token()
 	blueprints, resp, err := app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
 		&esi.GetCorporationsCorporationIdBlueprintsOpts{
-			IfNoneMatch: etag,
-			Page:        optional.NewInt32(1),
+			// IfNoneMatch: etag,
+			Page: optional.NewInt32(1),
 		})
-
 	if err != nil {
 		logger.Error("error fetching blueprints", zap.Error(err))
 		return nil, nil, fmt.Errorf("could not fetch first page of blueprints: %w", err)
@@ -248,8 +260,7 @@ func (app *app) updateBlueprintInventory(logger *zap.Logger) (
 		var bp esi.GetCorporationsCorporationIdBlueprints200OkList
 		bp, resp, err = app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
 			&esi.GetCorporationsCorporationIdBlueprintsOpts{
-				IfNoneMatch: etag,
-				Page:        optional.NewInt32(page),
+				Page: optional.NewInt32(page),
 			})
 
 		if err != nil {
@@ -337,6 +348,7 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 <li><a href="/login/char">add character</a>
 <li><a href="/login/scope">add scopes</a>
 <li><a href="/config">config</a>
+<li><a href="/metrics">metrics</a>
 </ul>
 ` + bp.String() + `
 </body>
@@ -389,6 +401,7 @@ func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {
 <li><a href="/login/char">add character</a>
 <li><a href="/login/scope">add scopes</a>
 <li><a href="/config">config</a>
+<li><a href="/metrics">metrics</a>
 </ul>
 </body>
 </html>

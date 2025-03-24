@@ -17,19 +17,22 @@ import (
 )
 
 const (
-	authUnauthorized = 0
-	authAuthorized   = 1
-	authAdmin        = 2
+	authLevel_Unauthorized = iota
+	authLevel_Authorized   = iota
+	authLevel_Worker       = iota
+	authLevel_Admin        = iota
 )
 
 // keys used in session.Values map
 const (
-	sessionState    = "state"    // oauth2 state
-	sessionSrc      = "src"      // source url that we're logging in from
-	sessionAuthType = "authType" // auth type new, add (character), scope
-	sessionLevel    = "level"    // authorization level
+	sessionState    = "state"     // oauth2 state
+	sessionSrc      = "src"       // source url that we're logging in from
+	sessionAuthType = "authType"  // auth type new, add (character), scope
+	sessionLevel    = "authLevel" // authorization level
 	sessionScopes   = "scopes"
 	sessionUserId   = "userId"
+	sessionCharId   = "charId"
+	sessionCharName = "charName"
 )
 
 type authType string
@@ -207,9 +210,9 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 	delete(s.Values, sessionAuthType)
 
 	s.Values[sessionUserId] = userId
-	s.Values[sessionLevel] = authAuthorized
+	s.Values[sessionLevel] = authLevel_Authorized
 	if charData.CorporationId == app.config.AdminCorp {
-		s.Values[sessionLevel] = authAdmin
+		s.Values[sessionLevel] = authLevel_Admin
 	}
 
 	sourcePage := s.Values[sessionSrc].(string)
@@ -222,4 +225,48 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 
 	// TODO: redirect using value stored in state
 	http.Redirect(w, r, sourcePage, http.StatusFound)
+}
+
+type (
+	ctxCharId    struct{}
+	ctxRequestId struct{}
+	ctxLogger    struct{}
+)
+
+func (app *app) authMiddleware(next http.Handler, requiredLevel int) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s, err := app.session.Get(r, cookieName)
+		if err != nil {
+			httpError(w, "error getting session data", http.StatusUnauthorized)
+			return
+		}
+		if s.IsNew {
+			httpError(w, "not logged in", http.StatusUnauthorized)
+			return
+		}
+
+		charId, ok := s.Values[sessionUserId].(int64)
+		if !ok {
+			httpError(w, "session data not found", http.StatusUnauthorized)
+			return
+		}
+		level := s.Values[sessionLevel].(int)
+		if level < requiredLevel {
+			http.Error(w, "not authorized for endpoint", http.StatusUnauthorized)
+			return
+		}
+
+		requestId := app.flake.Generate()
+		ctx := context.WithValue(r.Context(), ctxCharId{}, charId)
+		ctx = context.WithValue(ctx, ctxRequestId{}, requestId)
+		ctx = context.WithValue(ctx, ctxLogger{}, app.logger.With(zap.Int64("request_id", requestId.Int64()), zap.Int64("character_id", charId)))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (app *app) getLoggerFromContext(ctx context.Context) *zap.Logger {
+	if logger, ok := ctx.Value(ctxLogger{}).(*zap.Logger); ok {
+		return logger
+	}
+	return app.logger
 }
