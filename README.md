@@ -13,6 +13,18 @@ From https://wiki.bravecollective.com/public/alliance/industry/bpcprogram
 
 Anything that is unreasonable will be rejected. And this is a sliding scale, arbitrary and utterly at the discretion of the BPC Managers. If they blink at the request, they’ll reject it.
 
+## Development
+
+Access to npm can be acquired via the node container in the `/app` directory
+``` sh
+docker compose run node bash
+```
+
+Running the frontend container provides a hotloading webserver at `localhost:3000` for react/frontend development.
+``` sh
+docker compose up -d frontend
+```
+
 ### TODO
 - [ ] Backend
   - [x] Oauth for ESI
