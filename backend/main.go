@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/gob"
 	"errors"
 	"fmt"
-	"maps"
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
@@ -43,16 +44,16 @@ type appConfig struct {
 }
 
 type app struct {
-	config           *appConfig
-	logger           *zap.Logger
-	dao              *dao
-	session          *sessions.CookieStore
-	esi              *goesi.APIClient
-	bpos             map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
-	bpcs             map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
-	groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
-	groupTree        map[int32][]int32
-	requisitionLocks map[int64]int32
+	config  *appConfig
+	logger  *zap.Logger
+	dao     *dao
+	session *sessions.CookieStore
+	esi     *goesi.APIClient
+	bpos    *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
+	bpcs    *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
+	//groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
+	//groupTree        map[int32][]int32
+	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
 }
 
@@ -66,29 +67,43 @@ func main() {
 	logger := newDefaultLogger(logLevel)
 	defer logger.Sync()
 
+	gob.Register(user{})
+	gob.Register(sessionAuthType{})
+	gob.Register(sessionLoginScopes{})
+	gob.Register(sessionLoginSrc{})
+	gob.Register(sessionLoginState{})
+	gob.Register(sessionUserData{})
+
 	snowflake.Epoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
 	flake, err := snowflake.NewNode(1)
 	if err != nil {
 		logger.Fatal("failed to start snowflake", zap.Error(err))
 	}
+
 	app := &app{
-		logger:  logger,
-		session: newCookieStore(),
-		esi:     goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
-		flake:   flake,
+		logger:           logger,
+		session:          newCookieStore(),
+		esi:              goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
+		flake:            flake,
+		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
+		bpcs:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
+		requisitionLocks: newSyncMap[int64, int32](),
 	}
 	app.loadEnv()
 
-	if db, err := sql.Open("mysql", dbConnectString()); err != nil {
+	var db *sql.DB
+	db, err = sql.Open("mysql", dbConnectString())
+	if err != nil {
 		logger.Fatal("error opening db connection", zap.Error(err))
-	} else {
-		defer db.Close()
-		if err = db.Ping(); err != nil {
-			logger.Fatal("error establishing db connetion", zap.Error(err))
-		}
-		app.dao = newDao(db)
-		app.dao.runMigrations(logger)
 	}
+	defer db.Close()
+
+	if err = db.Ping(); err != nil {
+		logger.Fatal("error establishing db connetion", zap.Error(err))
+	}
+
+	app.dao = newDao(db)
+	app.dao.runMigrations(logger)
 
 	app.config = &appConfig{
 		AllianceWhitelist: []int32{
@@ -107,22 +122,48 @@ func main() {
 	app.config = app.dao.loadAppConfig(logger, app.config)
 
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/", app.root)
-	mux.HandleFunc("/login", app.login)
-	mux.HandleFunc("/login/char", app.addCharToAccount)
-	mux.HandleFunc("/login/scope", app.addScopeToAccount)
-	mux.HandleFunc("/config", app.printConfig)
+	baseChain := NewMwChain(app.requestMiddleware)
+	chain := baseChain.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
+	mux.Handle("/metrics", chain.Handle(promhttp.Handler()))
+	mux.Handle("/", chain.HandleFunc(app.root))
+	mux.Handle("/login", chain.HandleFunc(app.login))
+	mux.Handle("/login/char", chain.HandleFunc(app.addCharToAccount))
+	mux.Handle("/login/scope", chain.HandleFunc(app.addScopeToAccount))
+	mux.Handle("/config", chain.HandleFunc(app.printConfig))
 
-	app.createApiHandlers(mux)
-	handler := timerMiddleware(mux)
+	app.createApiHandlers(mux, baseChain)
 
 	done := make(chan struct{})
 	go app.ticker(done)
+
 	port := 2727
 	logger.Info("http service listening", zap.Int("port", port))
-	logger.Fatal("error serving http", zap.Error(http.ListenAndServe(fmt.Sprintf("%s:%d", "localhost", port), handler)))
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", port),
+		Handler:      mux,
+		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		err := server.ListenAndServe()
+		if err != nil {
+			logger.Fatal("error serving http", zap.Error(err))
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	<-sigChan
+	logger.Warn("received os interrupt signal, shutting down gracefully")
+
 	done <- struct{}{}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err = server.Shutdown(shutdownCtx)
+	logger.Warn("shutdown complete", zap.Error(err))
 }
 
 func (app *app) ticker(done <-chan struct{}) {
@@ -134,8 +175,8 @@ func (app *app) ticker(done <-chan struct{}) {
 	if err != nil {
 		logger.Error("error updating blueprint inventory", zap.Error(err))
 	} else {
-		app.bpos = bpos
-		app.bpcs = bpcs
+		app.bpos.Overwrite(bpos)
+		app.bpcs.Overwrite(bpcs)
 	}
 	for {
 		select {
@@ -156,8 +197,8 @@ func (app *app) ticker(done <-chan struct{}) {
 					ticker.Reset(60 * time.Minute)
 				}
 			} else {
-				app.bpos = bpos
-				app.bpcs = bpcs
+				app.bpos.Overwrite(bpos)
+				app.bpcs.Overwrite(bpcs)
 			}
 		}
 	}
@@ -301,21 +342,20 @@ func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints2
 }
 
 func (app *app) root(w http.ResponseWriter, r *http.Request) {
-	s, _ := app.session.Get(r, cookieName)
-	var values string
+	logger := getLoggerFromContext(r.Context())
+	logger.Info("root")
+	user := app.getUserFromSession(r)
 	var bp strings.Builder
-	if !s.IsNew {
-		for k, v := range s.Values {
-			values = values + fmt.Sprintf("%s: %v<br/>", k, v)
-		}
-
-		keys := slices.Collect(maps.Keys(app.bpcs))
+	keys := app.bpcs.Keys()
+	if user.IsLoggedIn() && len(keys) > 0 {
 		names, resp, err := app.esi.ESI.UniverseApi.PostUniverseNames(context.Background(), keys, nil)
 		if err != nil {
+			logger.Error("error fetching type names", zap.Error(err), zap.Int32s("type_ids", keys))
 			http.Error(w, "error fetching type names", http.StatusInternalServerError)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
+			logger.Error("error fetching type names", zap.String("status", resp.Status))
 			http.Error(w, "error fetching type names status no ok", http.StatusInternalServerError)
 			return
 		}
@@ -330,19 +370,19 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 			return nm
 		}()
 
-		for typeId, list := range app.bpcs {
+		app.bpcs.RangeFunc(func(typeId int32, list esi.GetCorporationsCorporationIdBlueprints200OkList) {
 			bp.WriteString("<details><summary>" + nameMap[typeId] + "</summary><p>")
 			for _, v := range list {
 				bp.WriteString(fmt.Sprintf("<div>ME: %d / TE: %d / Runs: %d / Quantity: %d</div>", v.MaterialEfficiency, v.TimeEfficiency, v.Runs, v.Quantity))
 			}
 			bp.WriteString("</p></details>")
-		}
+		})
 	}
 
 	body := `
 <html>
 <body>
-` + values + `
+` + fmt.Sprintf("%v", user) + `
 <ul>
 <li><a href="/login">login</a>
 <li><a href="/login/char">add character</a>
@@ -392,6 +432,8 @@ func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 
 // print out the app config data
 func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {
+	logger := getLoggerFromContext(r.Context())
+	logger.Info("printConfig")
 	body := `
 <html>
 <body>

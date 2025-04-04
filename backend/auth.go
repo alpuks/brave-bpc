@@ -24,16 +24,24 @@ const (
 )
 
 // keys used in session.Values map
-const (
-	sessionState    = "state"     // oauth2 state
-	sessionSrc      = "src"       // source url that we're logging in from
-	sessionAuthType = "authType"  // auth type new, add (character), scope
-	sessionLevel    = "authLevel" // authorization level
-	sessionScopes   = "scopes"
-	sessionUserId   = "userId"
-	sessionCharId   = "charId"
-	sessionCharName = "charName"
+type (
+	sessionLoginState  struct{} // oauth2 state
+	sessionLoginSrc    struct{} // source url that we're logging in from
+	sessionAuthType    struct{} // auth type new, add (character), scope
+	sessionLoginScopes struct{} // scopes to grant
+	sessionUserData    struct{} // user data after login
 )
+
+type user struct {
+	UserId        int64
+	CharacterId   int32
+	Level         int
+	CharacterName string
+}
+
+func (u *user) IsLoggedIn() bool {
+	return u.UserId > 0
+}
 
 type authType string
 
@@ -44,11 +52,15 @@ const (
 )
 
 func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []string, authType authType) {
+	logger := getLoggerFromContext(r.Context()).With(
+		zap.String("auth_type", string(authType)),
+		zap.Strings("scopes", esiScopes))
+
 	s, _ := app.session.Get(r, cookieName)
 
 	if code := r.URL.Query().Get("code"); code != "" {
 		// if code is set, this is the callback state.
-		app.callback(w, r, s, code)
+		app.callback(logger, w, r, s, code)
 		return
 	}
 
@@ -56,10 +68,10 @@ func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []stri
 	_, _ = crand.Read(b)
 	state := base64.URLEncoding.EncodeToString(b)
 
-	s.Values[sessionState] = state
-	s.Values[sessionSrc] = r.URL.Query().Get("src")
-	s.Values[sessionAuthType] = string(authType)
-	s.Values[sessionScopes] = esiScopes
+	s.Values[sessionLoginState{}] = state
+	s.Values[sessionLoginSrc{}] = r.URL.Query().Get("src")
+	s.Values[sessionAuthType{}] = string(authType)
+	s.Values[sessionLoginScopes{}] = esiScopes
 
 	if err := s.Save(r, w); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -87,6 +99,7 @@ func (app *app) createTokens(tsps []scopeRefreshPair) []scopeSourcePair {
 	for _, tsp := range tsps {
 		esiScopes = append(esiScopes, tsp.scope)
 	}
+
 	ssoAuth := goesi.NewSSOAuthenticatorV2(
 		&http.Client{Timeout: 10 * time.Second},
 		os.Getenv(envAppId),
@@ -108,24 +121,24 @@ func (app *app) createTokens(tsps []scopeRefreshPair) []scopeSourcePair {
 	return tokens
 }
 
-func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Session, code string) {
-	sessionStateValue := s.Values[sessionState].(string)
+func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Request, s *sessions.Session, code string) {
+	sessionStateValue := s.Values[sessionLoginState{}].(string)
 	queryState := r.URL.Query().Get("state")
-	delete(s.Values, sessionState)
+	delete(s.Values, sessionLoginState{})
 
 	if sessionStateValue != queryState {
 		// TODO: on a mismatch state there's a panic here?
-		app.logger.Error("mismatch state",
+		logger.Error("mismatch state",
 			zap.String("sessionState", sessionStateValue),
 			zap.String("queryState", queryState))
-		delete(s.Values, sessionState)
-		delete(s.Values, sessionSrc)
+		delete(s.Values, sessionLoginState{})
+		delete(s.Values, sessionLoginSrc{})
 		http.Error(w, "mismatch state", http.StatusBadRequest)
 		return
 	}
 
-	esiScopes := s.Values[sessionScopes].([]string)
-	delete(s.Values, sessionScopes)
+	esiScopes := s.Values[sessionLoginScopes{}].([]string)
+	delete(s.Values, sessionLoginScopes{})
 
 	ssoAuth := goesi.NewSSOAuthenticatorV2(
 		&http.Client{Timeout: 10 * time.Second},
@@ -146,8 +159,11 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 		http.Error(w, "token verification failed", http.StatusInternalServerError)
 		return
 	}
-	logger := app.logger.With(zap.String("character", v.CharacterName))
-	logger.Info("verified", zap.Strings("scopes", strings.Split(v.Scopes, " ")), zap.Any("session", s.Values))
+	logger = logger.With(
+		zap.Int32("character_id", v.CharacterID),
+		zap.Strings("scopes", strings.Split(v.Scopes, " ")),
+		zap.String("character_name", v.CharacterName))
+	logger.Info("verified user")
 
 	// esi get character corp and alliance
 	esiCtx := context.WithValue(context.Background(), goesi.ContextOAuth2, tokSrc)
@@ -161,9 +177,7 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 	if len(app.config.AllianceWhitelist) > 0 || len(app.config.CorporationWhitelist) > 0 {
 		if !slices.Contains(app.config.AllianceWhitelist, charData.AllianceId) {
 			if !slices.Contains(app.config.CorporationWhitelist, charData.CorporationId) {
-				logger.Warn("character not in corp or alliance whitelist",
-					zap.Int32("character_id", v.CharacterID),
-					zap.String("character_name", v.CharacterName))
+				logger.Warn("character not in corp or alliance whitelist")
 				http.Error(w, "access denied", http.StatusForbidden)
 				return
 			}
@@ -173,7 +187,7 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 
 	var userId int64
 	var toonId int64
-	switch authType(s.Values[sessionAuthType].(string)) {
+	switch authType := authType(s.Values[sessionAuthType{}].(string)); authType {
 	case authTypeLogin:
 		userId = app.dao.getUserForCharacter(logger, v.CharacterID, v.CharacterOwnerHash)
 		if userId == 0 {
@@ -187,16 +201,17 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 
 	case authTypeAddCharacter, authTypeAddScopes:
 		// we must already be logged in to add more characters
-		uid := s.Values[sessionUserId]
-		if uid == nil {
-			http.Error(w, "not logged in", http.StatusUnauthorized)
+		user := app.getUserFromSession(r)
+		if !user.IsLoggedIn() {
+			logger.Warn("attempting to add character or scope without login", zap.String("auth_type", string(authType)))
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		userId = uid.(int64)
+		userId = user.UserId
 
 		toonId, _, _ = app.dao.findOrCreateToon(logger, userId, v.CharacterID, v.CharacterOwnerHash)
 		if toonId == 0 {
-			logger.Debug("created user", zap.Int64("user_id", userId), zap.Int64("toon_id", toonId))
+			logger.Debug("error creating toon", zap.Int64("user_id", userId), zap.Int64("toon_id", toonId))
 			http.Error(w, "error creating toon", http.StatusInternalServerError)
 			return
 		}
@@ -207,16 +222,26 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 		}
 	}
 
-	delete(s.Values, sessionAuthType)
+	delete(s.Values, sessionAuthType{})
 
-	s.Values[sessionUserId] = userId
-	s.Values[sessionLevel] = authLevel_Authorized
-	if charData.CorporationId == app.config.AdminCorp {
-		s.Values[sessionLevel] = authLevel_Admin
+	// TODO: check user corp and set appropriately
+	authLevel := authLevel_Authorized
+
+	authData := user{
+		UserId:        userId,
+		Level:         authLevel,
+		CharacterId:   v.CharacterID,
+		CharacterName: v.CharacterName,
 	}
+	//s.Values[sessionUserId] = userId
+	//s.Values[sessionLevel] = authLevel_Authorized
+	if charData.CorporationId == app.config.AdminCorp {
+		authData.Level = authLevel_Admin
+	}
+	s.Values[sessionUserData{}] = authData
 
-	sourcePage := s.Values[sessionSrc].(string)
-	delete(s.Values, sessionSrc)
+	sourcePage := s.Values[sessionLoginSrc{}].(string)
+	delete(s.Values, sessionLoginSrc{})
 
 	if err = s.Save(r, w); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -225,48 +250,4 @@ func (app *app) callback(w http.ResponseWriter, r *http.Request, s *sessions.Ses
 
 	// TODO: redirect using value stored in state
 	http.Redirect(w, r, sourcePage, http.StatusFound)
-}
-
-type (
-	ctxCharId    struct{}
-	ctxRequestId struct{}
-	ctxLogger    struct{}
-)
-
-func (app *app) authMiddleware(next http.Handler, requiredLevel int) http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s, err := app.session.Get(r, cookieName)
-		if err != nil {
-			httpError(w, "error getting session data", http.StatusUnauthorized)
-			return
-		}
-		if s.IsNew {
-			httpError(w, "not logged in", http.StatusUnauthorized)
-			return
-		}
-
-		charId, ok := s.Values[sessionUserId].(int64)
-		if !ok {
-			httpError(w, "session data not found", http.StatusUnauthorized)
-			return
-		}
-		level := s.Values[sessionLevel].(int)
-		if level < requiredLevel {
-			http.Error(w, "not authorized for endpoint", http.StatusUnauthorized)
-			return
-		}
-
-		requestId := app.flake.Generate()
-		ctx := context.WithValue(r.Context(), ctxCharId{}, charId)
-		ctx = context.WithValue(ctx, ctxRequestId{}, requestId)
-		ctx = context.WithValue(ctx, ctxLogger{}, app.logger.With(zap.Int64("request_id", requestId.Int64()), zap.Int64("character_id", charId)))
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func (app *app) getLoggerFromContext(ctx context.Context) *zap.Logger {
-	if logger, ok := ctx.Value(ctxLogger{}).(*zap.Logger); ok {
-		return logger
-	}
-	return app.logger
 }

@@ -48,6 +48,23 @@ func (d *dao) loadAppConfig(logger *zap.Logger, config *appConfig) *appConfig {
 	return conf
 }
 
+func (dao *dao) updateConfig(newConfig *appConfig) error {
+	jsonConfig, err := json.Marshal(newConfig)
+	if err != nil {
+		return fmt.Errorf("error marshaling config json: %w", err)
+	}
+
+	_, err = dao.db.Exec(`
+UPDATE config
+SET config=?
+`, jsonConfig)
+	if err != nil {
+		return fmt.Errorf("error updating config: %w", err)
+	}
+
+	return nil
+}
+
 func (d *dao) getTokenForCharacter(logger *zap.Logger, characterId int32, roles []string) []scopeRefreshPair {
 	logger = logger.With(zap.Int32("character_id", characterId), zap.Strings("roles", roles))
 
@@ -128,6 +145,7 @@ VALUES(?, NOW(), NOW())
 	return userId, toonId, nil
 }
 
+// returns toon, found, created
 func (d *dao) findOrCreateToon(logger *zap.Logger, userId int64, characterId int32, ownerHash string) (int64, bool, bool) {
 	if userId <= 0 {
 		return 0, false, false
@@ -213,7 +231,7 @@ scope IN(` + params.AddParams(scopes) + `)
 	slices.Sort(foundScopes)
 	if len(foundScopes) == len(scopes) {
 		// no need to save, all scopes already exist
-		session.Values[sessionScopes] = foundScopes
+		session.Values[sessionLoginScopes{}] = foundScopes
 		return nil
 	}
 
@@ -258,7 +276,7 @@ VALUES`+strings.Join(scopeValues, ","), params...)
 		return err
 	}
 
-	sessionScopes, found := session.Values[sessionScopes]
+	sessionScopes, found := session.Values[sessionLoginScopes{}]
 	if !found {
 		sessionScopes = make([]string, len(scopes))
 	}
@@ -288,18 +306,97 @@ func (d *dao) runMigrations(logger *zap.Logger) {
 	}
 }
 
-func (dao *dao) createRequisition(characterId int32, blueprints []byte) error {
+func (dao *dao) createRequisition(characterId int32, characterName string, blueprints []byte) error {
 	var err error
 	params := sqlparams.New()
 	_, err = dao.db.Exec(`
 INSERT INTO requisition_order
-(character_id, blueprints)
-VALUES (`+params.AddParams(characterId, blueprints)+`)
+(character_id, blueprints, updated_by)
+VALUES (`+params.AddParams(characterId, blueprints, characterName)+`)
 `, params...)
 	return err
 }
 
-func (dao *dao) updateRequisition() error {
-	var err error
+func (dao *dao) getRequisition(reqId int64) (*requisitionOrder, error) {
+	var bpjs []byte
+	req := &requisitionOrder{}
+	err := dao.db.QueryRow(`
+SELECT *
+FROM requisition_order
+WHERE id=?`, reqId).Scan(
+		req.Id,
+		req.CharacterId,
+		&bpjs,
+		req.Status,
+		req.CreatedAt,
+		req.UpdatedAt,
+		req.UpdatedBy,
+		req.PublicNotes)
+	if err != nil {
+		return nil, err
+	}
+	if err = json.Unmarshal(bpjs, &req.Blueprints); err != nil {
+		return nil, fmt.Errorf("error unmarshalling json: %w", err)
+	}
+
+	return req, nil
+}
+
+func (dao *dao) requisitionExists(reqId int64) (bool, error) {
+	var count int64
+	err := dao.db.QueryRow(`
+SELECT COUNT(1)
+FROM requisition
+WHERE id=?`, reqId).Scan(&count)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (dao *dao) cancelRequisition(reqId int64, updatedBy string) error {
+	_, err := dao.db.Exec(`
+UPDATE requisition_order
+SET
+	status=?
+	updated_at=NOW()
+	updated_by="?"
+WHERE
+	id=?
+`, requisitionStatus_Canceled, reqId, updatedBy)
+
+	return err
+}
+
+func (dao *dao) completeRequisition(reqId int64, updatedBy string, notes string) error {
+	_, err := dao.db.Exec(`
+UPDATE requisition_order
+SET
+	status=?
+	public_notes="?"
+	updated_at=NOW()
+	updated_by="?"
+WHERE
+	id=?
+`, requisitionStatus_Completed, notes, reqId, updatedBy)
+
+	return err
+}
+
+func (dao *dao) rejectRequisition(reqId int64, updatedBy string, notes string) error {
+	_, err := dao.db.Exec(`
+UPDATE requisition_order
+SET
+	status=?
+	public_notes="?"
+	updated_at=NOW()
+	updated_by="?"
+WHERE
+	id=?
+`, requisitionStatus_Rejected, notes, updatedBy, reqId)
+
 	return err
 }

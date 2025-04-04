@@ -15,9 +15,9 @@ Anything that is unreasonable will be rejected. And this is a sliding scale, arb
 
 ### TODO
 - [ ] Backend
-  - [ ] Oauth for ESI
-    - [ ] Corp Blueprint roles to fetch blueprints store in token table
-  - [ ] Pull Blueprint data via ESI
+  - [x] Oauth for ESI
+    - [x] Corp Blueprint roles to fetch blueprints store in token table
+  - [x] Pull Blueprint data via ESI
 - [ ] Pages
   - [ ] Unauthenticated / Login Page
   - [ ] Unauthorized Character

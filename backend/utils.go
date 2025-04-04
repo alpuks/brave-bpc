@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/gorilla/securecookie"
@@ -108,4 +111,39 @@ func getEnvWithDefault(key string, value string) string {
 		return val
 	}
 	return value
+}
+
+func getLoggerFromContext(ctx context.Context) *zap.Logger {
+	if logger, ok := ctx.Value(ctxLogger{}).(*zap.Logger); ok {
+		return logger
+	}
+	return nil
+}
+
+func (app *app) getUserFromSession(r *http.Request) *user {
+	s, _ := app.session.Get(r, cookieName)
+	if user, ok := s.Values[sessionUserData{}].(user); ok {
+		return &user
+	}
+	return &user{}
+}
+
+// httpError creates a json formatted error message with code.
+// You should return from your handler after calling this.
+func httpError(w http.ResponseWriter, message string, statusCode int) {
+	h := w.Header()
+	h.Del("Content-Length")
+	//h.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(statusCode)
+	fmt.Fprintf(w, `{"code":%d,"msg":"%s"}`, statusCode, message)
+}
+
+// httpWrite converts data to a json object and writes it to http.ResponseWriter
+func httpWrite(w http.ResponseWriter, data any) {
+	buf, err := json.Marshal(data)
+	if err != nil {
+		httpError(w, "error marshalling json", http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf)
 }
