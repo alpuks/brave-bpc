@@ -12,12 +12,6 @@ services:
       MYSQL_DATABASE: local
       MYSQL_ROOT_PASSWORD: local
 
-  node:
-    image: arm64v8/node:23
-    container_name: node-cmd
-    volumes:
-      - ./frontend:/app
-
   frontend:
     build:
       context: .
@@ -25,6 +19,13 @@ services:
     container_name: frontend
     ports:
       - '3000:3000'
+    volumes:
+      - ./frontend:/app
+
+  node:
+    image: arm64v8/node:23
+    container_name: node-cmd
+    working_dir: /app
     volumes:
       - ./frontend:/app
 
