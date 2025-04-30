@@ -28,11 +28,15 @@ import (
 )
 
 const (
-	esiUserAgent = "brave-bpc - Al Heamer"
+	esiUserAgent = "brave-bpc/0.0.0 (eve:Al Heamer)"
 
 	headerPages       = "X-Pages"
 	headerErrorRemain = "X-Esi-Error-Limit-Remain" // errors remaining this window
 	headerErrorReset  = "X-Esi-Error-Limit-Reset"  // seconds until the next error window
+)
+
+var (
+	errErrorsExceeded = errors.New("too many errors")
 )
 
 type appConfig struct {
@@ -202,14 +206,6 @@ func (app *app) ticker(done <-chan struct{}) {
 			}
 		}
 	}
-}
-
-var errErrorsExceeded error = fmt.Errorf("too many errors")
-
-type itemLocation struct {
-	parent     int64
-	locationId int64
-	blueprints esi.GetCorporationsCorporationIdBlueprints200OkList
 }
 
 func sameBlueprintQuality(a esi.GetCorporationsCorporationIdBlueprints200Ok, b esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
