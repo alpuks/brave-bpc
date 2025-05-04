@@ -153,29 +153,32 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 	defer cancel()
+
 	claims, err := app.jwks.VerifyTokenClaims(ctx, []byte(token.AccessToken))
 	if err != nil {
 		logger.Error("error verifying token claims", zap.Error(err))
-		httpError(w, "error verifying claims", http.StatusInternalServerError)
+		http.Error(w, "error verifying claims", http.StatusInternalServerError)
 		return
 	}
 
 	logger = logger.With(
 		zap.Int32("character_id", claims.CharacterId),
 		zap.Strings("scopes", claims.Scopes),
-		zap.String("character_name", claims.Name))
+		zap.String("character_name", claims.Name),
+		zap.String("owner_hash", claims.OwnerHash))
 	logger.Info("verified user")
 
 	// esi get character corp and alliance
 	tokSrc := ssoAuth.TokenSource(token)
 	esiCtx := context.WithValue(context.Background(), goesi.ContextOAuth2, tokSrc)
-	charData, resp, err := app.esi.ESI.CharacterApi.GetCharactersCharacterId(esiCtx, claims.CharacterId, nil)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		logger.Error("error getting character data")
-		http.Error(w, "error getting character data", http.StatusInternalServerError)
+	affiliation, resp, err := app.esi.ESI.CharacterApi.PostCharactersAffiliation(esiCtx, []int32{claims.CharacterId}, nil)
+	if err != nil || resp.StatusCode != http.StatusOK || len(affiliation) != 1 {
+		logger.Error("error getting character affiliations", zap.Int("affiliation_length", len(affiliation)), zap.String("status", resp.Status), zap.Error(err))
+		http.Error(w, "error getting character affiliations", http.StatusInternalServerError)
 		return
 	}
 
+	charData := affiliation[0]
 	if len(app.config.AllianceWhitelist) > 0 || len(app.config.CorporationWhitelist) > 0 {
 		if !slices.Contains(app.config.AllianceWhitelist, charData.AllianceId) {
 			if !slices.Contains(app.config.CorporationWhitelist, charData.CorporationId) {
@@ -226,7 +229,6 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	delete(s.Values, sessionAuthType{})
 
-	// TODO: check user corp and set appropriately
 	authLevel := authLevel_Authorized
 
 	authData := user{

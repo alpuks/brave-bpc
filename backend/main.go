@@ -47,13 +47,12 @@ type appConfig struct {
 }
 
 type runtimeConfig struct {
-	eveWellKnown *EveOnlineWellKnownOauthAuthServer
-	appId        string
-	appSecret    string
-	appRedirect  string
-	environment  string
-	migrateDown  string
-	httpPort     string
+	appId       string
+	appSecret   string
+	appRedirect string
+	environment string
+	migrateDown string
+	httpPort    string
 }
 
 type app struct {
@@ -96,16 +95,12 @@ func main() {
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 	}
-	app.runtimeConfig.eveWellKnown, err = FetchEsiWellKnown()
-	if err != nil {
-		logger.Fatal("fetch esi well-known", zap.Error(err))
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	app.jwks, err = NewEsiJwks(ctx,
-		app.runtimeConfig.eveWellKnown.JwksUri,
+		app.runtimeConfig.appId,
 		jwk.WithMinInterval(time.Hour),
 		jwk.WithMaxInterval(time.Hour*24*7))
 	if err != nil {
@@ -449,7 +444,7 @@ func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {
 	body := `
 <html>
 <body>
-` + fmt.Sprintf("%+v", *app.config) + `
+` + fmt.Sprintf("%+v<br/>%+v", *app.config, *app.runtimeConfig) + `
 <ul>
 <li><a href="/login">login</a>
 <li><a href="/login/char">add character</a>
