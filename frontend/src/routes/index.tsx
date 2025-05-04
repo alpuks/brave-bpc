@@ -5,5 +5,11 @@ export const Route = createFileRoute('/')({
 })
 
 function RouteComponent() {
-  return <div>Hello Index!</div>
+  return <div>
+    <h1 className="text-3xl font-bold underline">
+    Welcome to Brave's BPC Request Program!
+    </h1>
+    <p>Thank you for you interest in Brave's BPC Program. This program is intended to be used by members of Brave Collective to help them build whatever Brave needs.</p>
+    
+  </div>
 }

@@ -1,9 +1,14 @@
 import { Avatar, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, HeroUIProvider, Link, Navbar, NavbarContent, NavbarItem } from "@heroui/react";
-import { Outlet, createRootRoute } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext  } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import { AuthProvider } from "../contexts/AuthContext";
+import type { AuthContext } from "../contexts/AuthContext";
+import { NavBar } from "../components/NavBar";
 
-export const Route = createRootRoute({
+interface MyRouterContext {
+  auth: AuthContext
+}
+
+export const Route = createRootRouteWithContext<MyRouterContext>()({
   component: RootComponent,
   notFoundComponent: () => {
     return (
@@ -16,57 +21,16 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const {auth} = Route.useRouteContext()
   return (
-    <AuthProvider>
+
       <HeroUIProvider>
         <main className="dark text-foreground bg-background">
-          <Navbar as="nav" className="bg-gray-800">
-            <NavbarContent className="hidden sm:flex gap-4" justify="center">
-              <NavbarItem>
-                <Link color="foreground" href="/">
-                  Home
-                </Link>
-              </NavbarItem>
-              <NavbarItem>
-                <Link color="foreground" href="/list">
-                  List
-                </Link>
-              </NavbarItem>
-              <NavbarItem>
-                <Link color="foreground" href="/admin">
-                  Admin
-                </Link>
-              </NavbarItem>
-            </NavbarContent>
-            <NavbarContent as="div" justify="end">
-        <Dropdown placement="bottom-end">
-          <DropdownTrigger>
-            <Avatar
-              isBordered
-              as="button"
-              className="transition-transform"
-              color="secondary"
-              name="Jason Hughes"
-              size="sm"
-              src="https://i.pravatar.cc/150?u=a042581f4e29026704d"
-            />
-          </DropdownTrigger>
-          <DropdownMenu aria-label="Profile Actions" variant="flat">
-            <DropdownItem key="profile" className="h-14 gap-2">
-              <p className="font-semibold">Signed in as</p>
-              <p className="font-semibold">zoey@example.com</p>
-            </DropdownItem>
-            <DropdownItem key="logout" color="danger">
-              Log Out
-            </DropdownItem>
-          </DropdownMenu>
-        </Dropdown>
-      </NavbarContent>
-          </Navbar>
+          <NavBar authContext={auth}/>
           <Outlet />
           <TanStackRouterDevtools />
         </main>
       </HeroUIProvider>
-    </AuthProvider>
+
   );
 }
