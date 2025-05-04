@@ -47,14 +47,13 @@ type appConfig struct {
 }
 
 type runtimeConfig struct {
-	oauthIssuer string
-	jwksUri     string
-	appId       string
-	appSecret   string
-	appRedirect string
-	environment string
-	migrateDown string
-	httpPort    string
+	eveWellKnown *EveOnlineWellKnownOauthAuthServer
+	appId        string
+	appSecret    string
+	appRedirect  string
+	environment  string
+	migrateDown  string
+	httpPort     string
 }
 
 type app struct {
@@ -70,7 +69,7 @@ type app struct {
 	//groupTree        map[int32][]int32
 	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
-	jwksCache        *jwk.Cache
+	jwks             *EsiJwks
 }
 
 func main() {
@@ -97,12 +96,21 @@ func main() {
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 	}
-	app.runtimeConfig.oauthIssuer,
-		app.runtimeConfig.jwksUri = fetchEsiWellKnown(logger)
+	app.runtimeConfig.eveWellKnown, err = FetchEsiWellKnown()
+	if err != nil {
+		logger.Fatal("fetch esi well-known", zap.Error(err))
+	}
 
-	var jwksCacheCancel context.CancelFunc
-	app.jwksCache, jwksCacheCancel = newJwksCache(logger, app.runtimeConfig.jwksUri)
-	defer jwksCacheCancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	app.jwks, err = NewEsiJwks(ctx,
+		app.runtimeConfig.eveWellKnown.JwksUri,
+		jwk.WithMinInterval(time.Hour),
+		jwk.WithMaxInterval(time.Hour*24*7))
+	if err != nil {
+		logger.Fatal("error creating jwks cache", zap.Error(err))
+	}
 
 	app.dao = newDao(logger)
 	defer app.dao.db.Close()

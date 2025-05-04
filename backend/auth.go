@@ -151,7 +151,14 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	claims := app.verifyTokenAndClaims(logger, token)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	defer cancel()
+	claims, err := app.jwks.VerifyTokenClaims(ctx, []byte(token.AccessToken))
+	if err != nil {
+		logger.Error("error verifying token claims", zap.Error(err))
+		httpError(w, "error verifying claims", http.StatusInternalServerError)
+		return
+	}
 
 	logger = logger.With(
 		zap.Int32("character_id", claims.CharacterId),
