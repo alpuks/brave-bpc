@@ -41,7 +41,7 @@ func newDao(logger *zap.Logger) *dao {
 	}
 }
 
-func (d *dao) loadAppConfig(config *appConfig) (*appConfig, error) {
+func (d *dao) loadAppConfig() (*appConfig, error) {
 	var strConfig []byte
 	if err := d.db.QueryRow(`
 SELECT config
@@ -52,14 +52,7 @@ LIMIT 1
 		return nil, err
 	}
 
-	conf := &appConfig{
-		AllianceWhitelist:    slices.Clone(config.AllianceWhitelist),
-		CorporationWhitelist: slices.Clone(config.CorporationWhitelist),
-		AdminCorp:            config.AdminCorp,
-		AdminCharacter:       config.AdminCharacter,
-		MaxContracts:         config.MaxContracts,
-	}
-
+	conf := &appConfig{}
 	json.Unmarshal(strConfig, conf)
 
 	return conf, nil

@@ -111,21 +111,7 @@ func main() {
 	defer app.dao.db.Close()
 	app.dao.runMigrations(logger)
 
-	// TODO: Remove appConfig param
-	app.config, err = app.dao.loadAppConfig(&appConfig{
-		AllianceWhitelist: []int32{
-			99003214, // Brave Collective
-			99010079, // Brave United
-		},
-		CorporationWhitelist: []int32{
-			98445423, // Brave Industries
-			98363855, // Nothing Industries
-			98544197, // Valor Shipyards
-		},
-		AdminCorp:      98544197,
-		AdminCharacter: 95154016,
-		MaxContracts:   2,
-	})
+	app.config, err = app.dao.loadAppConfig()
 	if err != nil {
 		logger.Fatal("failed to load config from db", zap.Error(err))
 	}
@@ -184,7 +170,7 @@ func main() {
 func (app *app) ticker(done <-chan struct{}) {
 	logger := app.logger.Named("ticker")
 	time.Sleep(3 * time.Second)
-	//app.buildMarketTree()
+
 	bpos, bpcs, err := app.updateBlueprintInventory(logger)
 	ticker := time.NewTicker(60 * time.Minute)
 	if err != nil {
@@ -280,6 +266,7 @@ func (app *app) updateBlueprintInventory(logger *zap.Logger) (
 	if len(toks) == 0 {
 		return nil, nil, errors.New("error creating esi token")
 	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	esiCtx := context.WithValue(ctx, goesi.ContextOAuth2, toks[0].token)
@@ -350,7 +337,7 @@ func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints2
 
 func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context())
-	logger.Info("root")
+	logger.Debug("root")
 	user := app.getUserFromSession(r)
 	var bp strings.Builder
 	keys := app.bpcs.Keys()
