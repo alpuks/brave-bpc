@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/base64"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -80,9 +79,9 @@ func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []stri
 
 	ssoAuth := goesi.NewSSOAuthenticatorV2(
 		&http.Client{Timeout: 10 * time.Second},
-		os.Getenv(envAppId),
-		os.Getenv(envAppSecret),
-		os.Getenv(envAppRedirect),
+		app.runtimeConfig.appId,
+		app.runtimeConfig.appSecret,
+		app.runtimeConfig.appRedirect,
 		esiScopes)
 
 	url := ssoAuth.AuthorizeURL(state, true, esiScopes)
@@ -102,9 +101,9 @@ func (app *app) createTokens(tsps []scopeRefreshPair) []scopeSourcePair {
 
 	ssoAuth := goesi.NewSSOAuthenticatorV2(
 		&http.Client{Timeout: 10 * time.Second},
-		os.Getenv(envAppId),
-		os.Getenv(envAppSecret),
-		os.Getenv(envAppRedirect),
+		app.runtimeConfig.appId,
+		app.runtimeConfig.appSecret,
+		app.runtimeConfig.appRedirect,
 		esiScopes)
 
 	var tokens []scopeSourcePair
@@ -142,9 +141,9 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	ssoAuth := goesi.NewSSOAuthenticatorV2(
 		&http.Client{Timeout: 10 * time.Second},
-		os.Getenv(envAppId),
-		os.Getenv(envAppSecret),
-		os.Getenv(envAppRedirect),
+		app.runtimeConfig.appId,
+		app.runtimeConfig.appSecret,
+		app.runtimeConfig.appRedirect,
 		esiScopes)
 
 	token, err := ssoAuth.TokenExchange(code)

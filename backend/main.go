@@ -46,14 +46,26 @@ type appConfig struct {
 	MaxContracts         int32   `json:"max_contracts,omitempty"` // Maximum number of contracts an account can open
 }
 
+type runtimeConfig struct {
+	oauthIssuer string
+	jwksUri     string
+	appId       string
+	appSecret   string
+	appRedirect string
+	environment string
+	migrateDown string
+	httpPort    string
+}
+
 type app struct {
-	config  *appConfig
-	logger  *zap.Logger
-	dao     *dao
-	session *sessions.CookieStore
-	esi     *goesi.APIClient
-	bpos    *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
-	bpcs    *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
+	config        *appConfig
+	runtimeConfig *runtimeConfig
+	logger        *zap.Logger
+	dao           *dao
+	session       *sessions.CookieStore
+	esi           *goesi.APIClient
+	bpos          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
+	bpcs          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
 	//groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
 	//groupTree        map[int32][]int32
 	requisitionLocks *syncMap[int64, int32]
@@ -93,6 +105,15 @@ func main() {
 	db, err = sql.Open("mysql", dbConnectString())
 	if err != nil {
 		logger.Fatal("error opening db connection", zap.Error(err))
+	}
+	app.loadEnv() // load .env file into os env
+	app.runtimeConfig = &runtimeConfig{
+		appId:       os.Getenv(envAppId),
+		appSecret:   os.Getenv(envAppSecret),
+		appRedirect: os.Getenv(envAppRedirect),
+		environment: os.Getenv(envEnvironment),
+		migrateDown: os.Getenv(envMigrateDown),
+		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 	}
 	defer db.Close()
 
@@ -134,10 +155,9 @@ func main() {
 	done := make(chan struct{})
 	go app.ticker(done)
 
-	port := 2727
-	logger.Info("http service listening", zap.Int("port", port))
+	logger.Info("http service listening", zap.String("port", app.runtimeConfig.httpPort))
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
+		Addr:         ":" + app.runtimeConfig.httpPort,
 		Handler:      mux,
 		IdleTimeout:  120 * time.Second,
 		ReadTimeout:  10 * time.Second,
@@ -184,7 +204,7 @@ func (app *app) ticker(done <-chan struct{}) {
 
 		case <-ticker.C:
 			// 1 minute jitter window
-			switch os.Getenv("ENVIRONMENT") {
+			switch app.runtimeConfig.environment {
 			case "prod", "production":
 				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
 			}
