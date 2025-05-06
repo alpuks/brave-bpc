@@ -24,7 +24,6 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -62,13 +61,8 @@ type app struct {
 }
 
 func main() {
-	logLevel := zapcore.DebugLevel
-	switch os.Getenv("ENVIRONMENT") {
-	case "prod", "production":
-		logLevel = zapcore.WarnLevel
-	}
-
-	logger := newDefaultLogger(logLevel)
+	var err error
+	logger := newDefaultLogger()
 	defer logger.Sync()
 
 	gob.Register(user{})
@@ -152,22 +146,22 @@ func main() {
 	go func() {
 		err := server.ListenAndServe()
 		if err != nil {
-			logger.Fatal("error serving http", zap.Error(err))
+			logger.Error("error serving http", zap.Error(err))
 		}
 	}()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	<-sigChan
-	logger.Warn("received os interrupt signal, shutting down gracefully")
+	logger.Info("received os interrupt signal, shutting down gracefully")
 
 	done <- struct{}{}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelShutdown()
 
 	err = server.Shutdown(shutdownCtx)
-	logger.Warn("shutdown complete", zap.Error(err))
+	logger.Info("shutdown complete", zap.Error(err))
 }
 
 func (app *app) ticker(done <-chan struct{}) {

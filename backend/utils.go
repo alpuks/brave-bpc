@@ -4,8 +4,9 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"io/fs"
 	"net/http"
 	"os"
 
@@ -21,6 +22,9 @@ const (
 	envAppId       = "ESI_APP_ID"
 	envAppSecret   = "ESI_APP_SECRET"
 	envAppRedirect = "ESI_APP_REDIRECT"
+	envMigrateDown = "MIGRATE_DOWN"
+	envEnvironment = "ENVIRONMENT"
+	envHttpPort    = "HTTP_PORT"
 	envDbUser      = "DB_USER"
 	envDbPass      = "DB_PASS"
 	envDbHost      = "DB_HOST"
@@ -29,16 +33,17 @@ const (
 	cookieName     = "brave-bpc"
 )
 
-func newDefaultLogger(level zapcore.Level) *zap.Logger {
+func newDefaultLogger() *zap.Logger {
 	var (
 		logger *zap.Logger
 		err    error
 	)
 
-	switch os.Getenv("ENVIRONMENT") {
+	// this instance of Getenv does not account for vars loaded from .env file
+	switch os.Getenv(envEnvironment) {
 	default:
 		if logger, err = zap.NewDevelopment(); err != nil {
-			log.Fatal("failed to start development logger")
+			panic(err)
 		}
 
 	case "prod", "production":
@@ -47,7 +52,7 @@ func newDefaultLogger(level zapcore.Level) *zap.Logger {
 		logger = zap.New(zapcore.NewCore(
 			zaplogfmt.NewEncoder(cfg),
 			os.Stdout,
-			level,
+			zapcore.InfoLevel,
 		), zap.AddStacktrace(zapcore.ErrorLevel))
 	}
 
@@ -82,13 +87,17 @@ var embedMigrations embed.FS
 func (app *app) loadEnv() {
 	fp, err := os.Open("./.env")
 	if err != nil {
-		app.logger.Warn("error opening .env file", zap.Error(err))
+		if errors.Is(err, fs.ErrNotExist) {
+			app.logger.Info("failed to read .env file", zap.Error(err))
+			return
+		}
+		app.logger.Warn("failed to read .env file", zap.Error(err))
 		return
 	}
 
 	env, err := envparse.Parse(fp)
 	if err != nil {
-		app.logger.Fatal("error parsing env file", zap.Error(err))
+		app.logger.Fatal("error parsing .env file", zap.Error(err))
 	}
 
 	for k, v := range env {

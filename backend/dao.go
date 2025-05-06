@@ -294,7 +294,7 @@ func (d *dao) runMigrations(logger *zap.Logger) {
 	if err = goose.SetDialect("mysql"); err != nil {
 		logger.Fatal("unable to setup db for migrations", zap.Error(err))
 	}
-	if os.Getenv("MIGRATE_DOWN") != "" {
+	if os.Getenv(envMigrateDown) != "" {
 		logger.Debug("migrate db down")
 		if err = goose.Down(d.db, "migrations"); err != nil {
 			logger.Warn("unable to down migrations", zap.Error(err))

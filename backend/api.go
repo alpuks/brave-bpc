@@ -198,7 +198,7 @@ func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "invalid requisition", http.StatusBadRequest)
 		return
 	}
-	logger := app.logger.Named("api").With(zap.Int64("id", reqId))
+	logger := getLoggerFromContext(r.Context()).Named("api").With(zap.Int64("id", reqId))
 
 	var req *requisitionOrder
 	if req, err = app.dao.getRequisition(reqId); err != nil {
@@ -221,7 +221,7 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "invalid requisition", http.StatusBadRequest)
 		return
 	}
-	logger := app.logger.Named("api").With(zap.Int64("id", reqId))
+	logger := getLoggerFromContext(r.Context()).Named("api").With(zap.Int64("id", reqId))
 	// TODO: get req from db
 	logger.Debug("get requisition order")
 }
@@ -239,7 +239,7 @@ func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 	// TODO: check user is in a valid corp
 
 	user := app.getUserFromSession(r)
-	logger := app.logger.Named("api")
+	logger := getLoggerFromContext(r.Context()).Named("api")
 
 	var buf []byte
 	if _, err := r.Body.Read(buf); err != nil {

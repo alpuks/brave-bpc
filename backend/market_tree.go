@@ -10,9 +10,9 @@ import (
 	"go.uber.org/zap"
 )
 
-func (app *app) buildMarketTree() {
+func (app *app) buildMarketTree(logger *zap.Logger) {
 	startTime := time.Now()
-	logger := app.logger.Named("market_tree")
+	logger = logger.Named("market_tree")
 	groups, resp, err := app.esi.ESI.MarketApi.GetMarketsGroups(context.Background(), nil)
 	if err != nil {
 		logger.Error("error getting market groups", zap.Error(err))
