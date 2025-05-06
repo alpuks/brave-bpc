@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -101,11 +100,6 @@ func main() {
 	}
 	app.loadEnv()
 
-	var db *sql.DB
-	db, err = sql.Open("mysql", dbConnectString())
-	if err != nil {
-		logger.Fatal("error opening db connection", zap.Error(err))
-	}
 	app.loadEnv() // load .env file into os env
 	app.runtimeConfig = &runtimeConfig{
 		appId:       os.Getenv(envAppId),
@@ -115,16 +109,13 @@ func main() {
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 	}
-	defer db.Close()
 
-	if err = db.Ping(); err != nil {
-		logger.Fatal("error establishing db connetion", zap.Error(err))
-	}
-
-	app.dao = newDao(db)
+	app.dao = newDao(logger)
+	defer app.dao.db.Close()
 	app.dao.runMigrations(logger)
 
-	app.config = &appConfig{
+	// TODO: Remove appConfig param
+	app.config, err = app.dao.loadAppConfig(&appConfig{
 		AllianceWhitelist: []int32{
 			99003214, // Brave Collective
 			99010079, // Brave United
@@ -137,8 +128,10 @@ func main() {
 		AdminCorp:      98544197,
 		AdminCharacter: 95154016,
 		MaxContracts:   2,
+	})
+	if err != nil {
+		logger.Fatal("failed to load config from db", zap.Error(err))
 	}
-	app.config = app.dao.loadAppConfig(logger, app.config)
 
 	mux := http.NewServeMux()
 	baseChain := NewMwChain(app.requestMiddleware)

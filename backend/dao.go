@@ -25,18 +25,33 @@ type dao struct {
 	db *sql.DB
 }
 
-func newDao(db *sql.DB) *dao {
+func newDao(logger *zap.Logger) *dao {
+	var db *sql.DB
+	var err error
+	db, err = sql.Open("mysql", dbConnectString())
+	if err != nil {
+		logger.Fatal("error opening db connection", zap.Error(err))
+	}
+
+	if err = db.Ping(); err != nil {
+		logger.Fatal("error establishing db connetion", zap.Error(err))
+	}
 	return &dao{
 		db: db,
 	}
 }
 
-func (d *dao) loadAppConfig(logger *zap.Logger, config *appConfig) *appConfig {
+func (d *dao) loadAppConfig(config *appConfig) (*appConfig, error) {
 	var strConfig []byte
-	if err := d.db.QueryRow("SELECT config FROM config LIMIT 1").Scan(&strConfig); err != nil {
-		logger.Error("failed to read config from db", zap.Error(err))
-		return nil
+	if err := d.db.QueryRow(`
+SELECT config
+FROM config
+ORDER BY updated_at DESC
+LIMIT 1
+`).Scan(&strConfig); err != nil {
+		return nil, err
 	}
+
 	conf := &appConfig{
 		AllianceWhitelist:    slices.Clone(config.AllianceWhitelist),
 		CorporationWhitelist: slices.Clone(config.CorporationWhitelist),
@@ -44,8 +59,10 @@ func (d *dao) loadAppConfig(logger *zap.Logger, config *appConfig) *appConfig {
 		AdminCharacter:       config.AdminCharacter,
 		MaxContracts:         config.MaxContracts,
 	}
+
 	json.Unmarshal(strConfig, conf)
-	return conf
+
+	return conf, nil
 }
 
 func (dao *dao) updateConfig(newConfig *appConfig) error {
