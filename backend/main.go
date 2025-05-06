@@ -21,6 +21,7 @@ import (
 	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
+	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
@@ -69,6 +70,7 @@ type app struct {
 	//groupTree        map[int32][]int32
 	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
+	jwksCache        *jwk.Cache
 }
 
 func main() {
@@ -76,29 +78,15 @@ func main() {
 	logger := newDefaultLogger()
 	defer logger.Sync()
 
-	gob.Register(user{})
-	gob.Register(sessionAuthType{})
-	gob.Register(sessionLoginScopes{})
-	gob.Register(sessionLoginSrc{})
-	gob.Register(sessionLoginState{})
-	gob.Register(sessionUserData{})
-
-	snowflake.Epoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
-	flake, err := snowflake.NewNode(1)
-	if err != nil {
-		logger.Fatal("failed to start snowflake", zap.Error(err))
-	}
-
 	app := &app{
 		logger:           logger,
 		session:          newCookieStore(),
 		esi:              goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
-		flake:            flake,
+		flake:            newSnowflake(logger),
 		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
 		bpcs:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
 		requisitionLocks: newSyncMap[int64, int32](),
 	}
-	app.loadEnv()
 
 	app.loadEnv() // load .env file into os env
 	app.runtimeConfig = &runtimeConfig{
@@ -109,6 +97,12 @@ func main() {
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 	}
+	app.runtimeConfig.oauthIssuer,
+		app.runtimeConfig.jwksUri = fetchEsiWellKnown(logger)
+
+	var jwksCacheCancel context.CancelFunc
+	app.jwksCache, jwksCacheCancel = newJwksCache(logger, app.runtimeConfig.jwksUri)
+	defer jwksCacheCancel()
 
 	app.dao = newDao(logger)
 	defer app.dao.db.Close()
@@ -132,6 +126,13 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to load config from db", zap.Error(err))
 	}
+
+	gob.Register(user{})
+	gob.Register(sessionAuthType{})
+	gob.Register(sessionLoginScopes{})
+	gob.Register(sessionLoginSrc{})
+	gob.Register(sessionLoginState{})
+	gob.Register(sessionUserData{})
 
 	mux := http.NewServeMux()
 	baseChain := NewMwChain(app.requestMiddleware)

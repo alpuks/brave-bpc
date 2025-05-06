@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/bwmarrin/snowflake"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 	"github.com/hashicorp/go-envparse"
@@ -57,6 +59,16 @@ func newDefaultLogger() *zap.Logger {
 	}
 
 	return logger
+}
+
+func newSnowflake(logger *zap.Logger) *snowflake.Node {
+	snowflake.Epoch = time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	flake, err := snowflake.NewNode(1)
+	if err != nil {
+		logger.Fatal("failed to start snowflake", zap.Error(err))
+	}
+
+	return flake
 }
 
 func newCookieStore() *sessions.CookieStore {

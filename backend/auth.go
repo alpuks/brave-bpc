@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/antihax/goesi"
@@ -152,21 +151,18 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	tokSrc := ssoAuth.TokenSource(token)
-	v, err := ssoAuth.Verify(tokSrc)
-	if err != nil {
-		http.Error(w, "token verification failed", http.StatusInternalServerError)
-		return
-	}
+	claims := app.verifyTokenAndClaims(logger, token)
+
 	logger = logger.With(
-		zap.Int32("character_id", v.CharacterID),
-		zap.Strings("scopes", strings.Split(v.Scopes, " ")),
-		zap.String("character_name", v.CharacterName))
+		zap.Int32("character_id", claims.CharacterId),
+		zap.Strings("scopes", claims.Scopes),
+		zap.String("character_name", claims.Name))
 	logger.Info("verified user")
 
 	// esi get character corp and alliance
+	tokSrc := ssoAuth.TokenSource(token)
 	esiCtx := context.WithValue(context.Background(), goesi.ContextOAuth2, tokSrc)
-	charData, resp, err := app.esi.ESI.CharacterApi.GetCharactersCharacterId(esiCtx, v.CharacterID, nil)
+	charData, resp, err := app.esi.ESI.CharacterApi.GetCharactersCharacterId(esiCtx, claims.CharacterId, nil)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		logger.Error("error getting character data")
 		http.Error(w, "error getting character data", http.StatusInternalServerError)
@@ -188,9 +184,9 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 	var toonId int64
 	switch authType := authType(s.Values[sessionAuthType{}].(string)); authType {
 	case authTypeLogin:
-		userId = app.dao.getUserForCharacter(logger, v.CharacterID, v.CharacterOwnerHash)
+		userId = app.dao.getUserForCharacter(logger, claims.CharacterId, claims.OwnerHash)
 		if userId == 0 {
-			userId, toonId, err = app.dao.createUserWithCharacter(logger, v.CharacterID, v.CharacterOwnerHash)
+			userId, toonId, err = app.dao.createUserWithCharacter(logger, claims.CharacterId, claims.OwnerHash)
 			if err != nil {
 				http.Error(w, "error creating user", http.StatusInternalServerError)
 				return
@@ -208,7 +204,7 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 		}
 		userId = user.UserId
 
-		toonId, _, _ = app.dao.findOrCreateToon(logger, userId, v.CharacterID, v.CharacterOwnerHash)
+		toonId, _, _ = app.dao.findOrCreateToon(logger, userId, claims.CharacterId, claims.OwnerHash)
 		if toonId == 0 {
 			logger.Debug("error creating toon", zap.Int64("user_id", userId), zap.Int64("toon_id", toonId))
 			http.Error(w, "error creating toon", http.StatusInternalServerError)
@@ -229,8 +225,8 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 	authData := user{
 		UserId:        userId,
 		Level:         authLevel,
-		CharacterId:   v.CharacterID,
-		CharacterName: v.CharacterName,
+		CharacterId:   claims.CharacterId,
+		CharacterName: claims.Name,
 	}
 	//s.Values[sessionUserId] = userId
 	//s.Values[sessionLevel] = authLevel_Authorized
