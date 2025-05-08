@@ -11,6 +11,32 @@ services:
       MYSQL_PASSWORD: local
       MYSQL_DATABASE: local
       MYSQL_ROOT_PASSWORD: local
+    healthcheck:
+      test: [ "CMD", "healthcheck.sh", "--connect", "--innodb_initialized" ]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+    container_name: backend
+    ports:
+      - "2727:2727"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+    healthcheck:
+      test: [ "CMD", "curl", "http://localhost:2727/metrics" ]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   frontend:
     build:
