@@ -10,4 +10,8 @@ var (
 		Name: "request_http_duration_seconds",
 		Help: "Duration of HTTP requests in seconds.",
 	}, []string{"path"})
+	fetchBlueprintDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name: "blueprint_fetch_http_duration_seconds",
+		Help: "Time taken to collect all blueprint pages",
+	})
 )
