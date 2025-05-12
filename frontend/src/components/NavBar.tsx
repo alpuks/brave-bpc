@@ -1,9 +1,13 @@
-import { Navbar, NavbarContent, NavbarItem, Link, Dropdown, DropdownTrigger, Avatar, DropdownMenu, DropdownItem } from '@heroui/react';
+import { Navbar, NavbarContent, NavbarItem, Link, Dropdown, DropdownTrigger, Avatar, DropdownMenu, DropdownItem, Image, Button } from '@heroui/react';
 import { AuthContext } from '../contexts/AuthContext';
+import { useRouter } from '@tanstack/react-router';
+
 
 export function NavBar({ authContext }: { authContext: AuthContext }) {
     const isAuthenticated = authContext?.isAuthenticated
     const user = authContext?.user
+
+    const router = useRouter();
 
     return (<Navbar as="nav" className="bg-gray-800">
         <NavbarContent className="hidden sm:flex gap-4" justify="center">
@@ -29,14 +33,14 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
                         Home
                     </Link>
                 </NavbarItem>)}
-            {user?.level === 'admin' && (<NavbarItem>
+            {user?.auth_level === 'admin' && (<NavbarItem>
                 <Link color="foreground" href="/admin">
                     Admin
                 </Link>
             </NavbarItem>)}
 
         </NavbarContent>
-        <NavbarContent as="div" justify="end">
+        <NavbarContent as="div" justify="end" >
             {isAuthenticated ? (<Dropdown placement="bottom-end">
                 <DropdownTrigger>
                     <Avatar
@@ -44,21 +48,21 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
                         as="button"
                         className="transition-transform"
                         color="secondary"
-                        name={user?.name}
+                        name={user?.character_name}
                         size="sm"
-                        src={"https://images.evetech.net/characters/" + user?.charId + "/portrait"}
+                        src={"https://images.evetech.net/characters/" + user?.character_id + "/portrait"}
                     />
                 </DropdownTrigger>
                 <DropdownMenu aria-label="Profile Actions" variant="flat">
                     <DropdownItem key="profile" className="h-14 gap-2">
                         <p className="font-semibold">Signed in as</p>
-                        <p className="font-semibold">{user?.name} | {user?.level}</p>
+                        <p className="font-semibold">{user?.character_name}</p>
                     </DropdownItem>
-                    <DropdownItem key="logout" color="danger">
+                    <DropdownItem key="logout" color="danger" onClick={() => router.navigate({ to: '/' }) && authContext.logout()}>
                         Log Out
                     </DropdownItem>
                 </DropdownMenu>
-            </Dropdown>) : <Link color="foreground" href="/login">Login</Link>}
+            </Dropdown>) : (<Button as={Link} isExternal href={`http://localhost:2727/login?src=${window.location.href}`} >Login</Button>)}
 
         </NavbarContent>
     </Navbar>)
