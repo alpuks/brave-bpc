@@ -60,7 +60,7 @@ type app struct {
 	runtimeConfig *runtimeConfig
 	logger        *zap.Logger
 	dao           *dao
-	session       *sessions.CookieStore
+	sessionStore  sessions.Store
 	esi           *goesi.APIClient
 	bpos          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
 	bpcs          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
@@ -78,7 +78,7 @@ func main() {
 
 	app := &app{
 		logger:           logger,
-		session:          newCookieStore(),
+		sessionStore:     newSessionStore(),
 		esi:              goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
 		flake:            newSnowflake(logger),
 		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
@@ -398,7 +398,7 @@ func (app *app) login(w http.ResponseWriter, r *http.Request) {
 
 func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
-	s, _ := app.session.Get(r, cookieName)
+	s, _ := app.sessionStore.Get(r, sessionCookie)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
 		return
@@ -410,7 +410,7 @@ func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 // director login
 func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
-	s, _ := app.session.Get(r, cookieName)
+	s, _ := app.sessionStore.Get(r, sessionCookie)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
 		return

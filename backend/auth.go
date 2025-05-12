@@ -4,6 +4,7 @@ import (
 	"context"
 	crand "crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"time"
@@ -31,14 +32,22 @@ type (
 )
 
 type user struct {
-	UserId        int64
-	CharacterId   int32
-	Level         int
-	CharacterName string
+	UserId        int64  `json:"-"`
+	CharacterId   int32  `json:"character_id"`
+	Level         int    `json:"auth_level"`
+	CharacterName string `json:"character_name"`
+}
+
+func (u *user) toJson() string {
+	out, _ := json.Marshal(u)
+	return string(out)
 }
 
 func (u *user) IsLoggedIn() bool {
-	return u.UserId > 0
+	if u != nil {
+		return u.UserId > 0
+	}
+	return false
 }
 
 type authType string
@@ -54,7 +63,7 @@ func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []stri
 		zap.String("auth_type", string(authType)),
 		zap.Strings("scopes", esiScopes))
 
-	s, _ := app.session.Get(r, cookieName)
+	s, _ := app.sessionStore.Get(r, sessionCookie)
 
 	if code := r.URL.Query().Get("code"); code != "" {
 		// if code is set, this is the callback state.
@@ -229,16 +238,13 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	delete(s.Values, sessionAuthType{})
 
-	authLevel := authLevel_Authorized
-
 	authData := user{
 		UserId:        userId,
-		Level:         authLevel,
+		Level:         authLevel_Authorized,
 		CharacterId:   claims.CharacterId,
 		CharacterName: claims.Name,
 	}
-	//s.Values[sessionUserId] = userId
-	//s.Values[sessionLevel] = authLevel_Authorized
+
 	if charData.CorporationId == app.config.AdminCorp {
 		authData.Level = authLevel_Admin
 	}
@@ -251,6 +257,13 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// send unsigned cookie so the client has basic user data
+	http.SetCookie(w, &http.Cookie{
+		Name:   userCookie,
+		Value:  authData.toJson(),
+		MaxAge: 60 * 60 * 24 * 30,
+	})
 
 	// TODO: redirect using value stored in state
 	http.Redirect(w, r, sourcePage, http.StatusFound)

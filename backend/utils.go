@@ -32,7 +32,8 @@ const (
 	envDbHost      = "DB_HOST"
 	envDbPort      = "DB_PORT"
 	envDbName      = "DB_NAME"
-	cookieName     = "brave-bpc"
+	sessionCookie  = "brave-bpc-session"
+	userCookie     = "brave-bpc"
 )
 
 func newDefaultLogger() *zap.Logger {
@@ -71,8 +72,9 @@ func newSnowflake(logger *zap.Logger) *snowflake.Node {
 	return flake
 }
 
-func newCookieStore() *sessions.CookieStore {
-	return sessions.NewCookieStore(
+func newSessionStore() sessions.Store {
+	return sessions.NewFilesystemStore(
+		os.TempDir(),
 		securecookie.GenerateRandomKey(64),
 		securecookie.GenerateRandomKey(32),
 	)
@@ -142,7 +144,7 @@ func getLoggerFromContext(ctx context.Context) *zap.Logger {
 }
 
 func (app *app) getUserFromSession(r *http.Request) *user {
-	s, _ := app.session.Get(r, cookieName)
+	s, _ := app.sessionStore.Get(r, sessionCookie)
 	if user, ok := s.Values[sessionUserData{}].(user); ok {
 		return &user
 	}
