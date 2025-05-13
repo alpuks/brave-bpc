@@ -53,6 +53,7 @@ type runtimeConfig struct {
 	environment string
 	migrateDown string
 	httpPort    string
+	jwtSkew     time.Duration
 }
 
 type app struct {
@@ -87,6 +88,12 @@ func main() {
 	}
 
 	app.loadEnv() // load .env file into os env
+	skewStr := getEnvWithDefault(envJwtSkew, "5m")
+	skew, err := time.ParseDuration(skewStr)
+	if err != nil {
+		logger.Warn("error parsing jwt acceptable skew", zap.String("skew", skewStr))
+		skew = time.Second
+	}
 	app.runtimeConfig = &runtimeConfig{
 		appId:       os.Getenv(envAppId),
 		appSecret:   os.Getenv(envAppSecret),
@@ -94,6 +101,7 @@ func main() {
 		environment: os.Getenv(envEnvironment),
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
+		jwtSkew:     skew,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -101,6 +109,7 @@ func main() {
 
 	app.jwks, err = NewEsiJwks(ctx,
 		app.runtimeConfig.appId,
+		app.runtimeConfig.jwtSkew,
 		jwk.WithMinInterval(time.Hour),
 		jwk.WithMaxInterval(time.Hour*24*7))
 	if err != nil {

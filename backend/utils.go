@@ -27,13 +27,15 @@ const (
 	envMigrateDown = "MIGRATE_DOWN"
 	envEnvironment = "ENVIRONMENT"
 	envHttpPort    = "HTTP_PORT"
+	envJwtSkew     = "JWT_SKEW"
 	envDbUser      = "DB_USER"
 	envDbPass      = "DB_PASS"
 	envDbHost      = "DB_HOST"
 	envDbPort      = "DB_PORT"
 	envDbName      = "DB_NAME"
-	sessionCookie  = "brave-bpc-session"
-	userCookie     = "brave-bpc"
+
+	sessionCookie = "brave-bpc-session"
+	userCookie    = "brave-bpc"
 )
 
 func newDefaultLogger() *zap.Logger {

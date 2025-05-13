@@ -25,9 +25,10 @@ const (
 )
 
 type EsiJwks struct {
-	appId     string
-	wellKnown *EveOnlineWellKnownOauthAuthServer
-	cache     *jwk.Cache
+	appId          string
+	wellKnown      *EveOnlineWellKnownOauthAuthServer
+	cache          *jwk.Cache
+	acceptableSkew time.Duration
 }
 
 type TokenClaims struct {
@@ -68,7 +69,7 @@ type EveOnlineWellKnownOauthAuthServer struct {
 }
 
 // ctx should have a cancelfunc that the host app controls.
-func NewEsiJwks(ctx context.Context, appId string, regOpts ...jwk.RegisterOption) (*EsiJwks, error) {
+func NewEsiJwks(ctx context.Context, appId string, acceptableSkew time.Duration, regOpts ...jwk.RegisterOption) (*EsiJwks, error) {
 	wellKnown, err := FetchEsiWellKnown()
 	if err != nil {
 		return nil, err
@@ -80,9 +81,10 @@ func NewEsiJwks(ctx context.Context, appId string, regOpts ...jwk.RegisterOption
 	}
 
 	return &EsiJwks{
-		appId:     appId,
-		wellKnown: wellKnown,
-		cache:     cache,
+		appId:          appId,
+		wellKnown:      wellKnown,
+		cache:          cache,
+		acceptableSkew: acceptableSkew,
 	}, nil
 }
 
@@ -143,7 +145,9 @@ func (j *EsiJwks) VerifyTokenClaims(
 		jwt.WithKeySet(keySet),
 		jwt.WithIssuer(j.wellKnown.Issuer),
 		jwt.WithAudience(j.appId),
-		jwt.WithAudience("EVE Online"))
+		jwt.WithAudience("EVE Online"),
+		jwt.WithAcceptableSkew(j.acceptableSkew),
+	)
 	tok, err := jwt.Parse(accessToken, parseOpts...)
 	if err != nil {
 		return nil, err
