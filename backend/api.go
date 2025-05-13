@@ -210,7 +210,7 @@ func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		httpError(w, "not logged in", http.StatusUnauthorized)
 		return
@@ -230,7 +230,7 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 // expects a postRequisitionOrderRequest in the body
 func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		httpError(w, "not logged in", http.StatusUnauthorized)
 		return

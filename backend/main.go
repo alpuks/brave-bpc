@@ -409,7 +409,7 @@ func (app *app) login(w http.ResponseWriter, r *http.Request) {
 
 func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
 		return
@@ -421,7 +421,7 @@ func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 // director login
 func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
 		return

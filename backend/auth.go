@@ -63,7 +63,7 @@ func (app *app) doLogin(w http.ResponseWriter, r *http.Request, esiScopes []stri
 		zap.String("auth_type", string(authType)),
 		zap.Strings("scopes", esiScopes))
 
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 
 	if code := r.URL.Query().Get("code"); code != "" {
 		// if code is set, this is the callback state.
@@ -260,7 +260,7 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	// send unsigned cookie so the client has basic user data
 	http.SetCookie(w, &http.Cookie{
-		Name:   userCookie,
+		Name:   cookieUser,
 		Value:  authData.toJson(),
 		MaxAge: 60 * 60 * 24 * 30,
 	})

@@ -34,8 +34,8 @@ const (
 	envDbPort      = "DB_PORT"
 	envDbName      = "DB_NAME"
 
-	sessionCookie = "brave-bpc-session"
-	userCookie    = "brave-bpc"
+	cookieSession = "brave-bpc-session"
+	cookieUser    = "brave-bpc"
 )
 
 func newDefaultLogger() *zap.Logger {
@@ -146,7 +146,7 @@ func getLoggerFromContext(ctx context.Context) *zap.Logger {
 }
 
 func (app *app) getUserFromSession(r *http.Request) *user {
-	s, _ := app.sessionStore.Get(r, sessionCookie)
+	s, _ := app.sessionStore.Get(r, cookieSession)
 	if user, ok := s.Values[sessionUserData{}].(user); ok {
 		return &user
 	}
