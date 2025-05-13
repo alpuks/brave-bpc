@@ -39,8 +39,8 @@ type user struct {
 }
 
 func (u *user) toJson() string {
-	out, _ := json.Marshal(u)
-	return string(out)
+	js, _ := json.Marshal(u)
+	return base64.URLEncoding.EncodeToString(js)
 }
 
 func (u *user) IsLoggedIn() bool {
