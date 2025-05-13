@@ -18,13 +18,10 @@ const AuthContext = createContext<AuthContext | null>(null);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  // FIX: This is a temporary fix for cookie not being in JSON format
   const cookie = Cookies.get('brave-bpc')
 
   const authCookie = cookie
-    ? cookie.slice(1, -1).split(/\s?,\s?/)
-      .map(item => item.split(':'))
-      .reduce((a, [key, val]) => Object.assign(a, { [key]: val }), {}) as User : null
+    ? JSON.parse(atob(cookie)) : null
 
   const [user, setUser] = useState<User | null>(authCookie);
 
