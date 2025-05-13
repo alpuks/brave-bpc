@@ -32,9 +32,9 @@ services:
       DB_HOST: db
       DB_PORT: 3306
     healthcheck:
-      test: [ "CMD", "curl", "http://localhost:2727/metrics" ]
+      test: [ "CMD", "curl", "-sf", "http://localhost:2727/metrics" ]
       start_period: 10s
-      interval: 10s
+      interval: 60s
       timeout: 5s
       retries: 3
 
