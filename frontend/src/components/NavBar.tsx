@@ -14,6 +14,7 @@ import {
 import { AuthContext } from "../contexts/AuthContext";
 import { useRouter } from "@tanstack/react-router";
 import blackEveImage from "../assets/eve-sso-login-black-small.png";
+import whiteEveImage from "../assets/eve-sso-login-white-small.png";
 import { MoonIcon, SunIcon } from "./Icons";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -113,7 +114,7 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
             <Image
               radius="none"
               width="135"
-              src={window.location.origin + blackEveImage}
+              src={window.location.origin + (theme === "dark" ? whiteEveImage : blackEveImage)}
               loading="eager"
             />
           </a>
