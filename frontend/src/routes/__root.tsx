@@ -1,4 +1,4 @@
-import { Avatar, Dropdown, DropdownItem, DropdownMenu, DropdownTrigger, HeroUIProvider, Link, Navbar, NavbarContent, NavbarItem } from "@heroui/react";
+import { HeroUIProvider, Link } from "@heroui/react";
 import { Outlet, createRootRouteWithContext  } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { AuthContext } from "../contexts/AuthContext";

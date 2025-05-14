@@ -4,7 +4,7 @@ export const Route = createFileRoute('/_auth')({
   beforeLoad: ({ context }) => {
     if (!context.auth.isAuthenticated) {
       throw redirect({
-        href:`http://localhost:2727/login?src=${window.location.href}`
+        href:`${window.location.protocol}//${window.location.hostname}:2727/login?src=${window.location.href}`
       })
     }
   },

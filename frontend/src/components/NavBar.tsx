@@ -1,7 +1,7 @@
-import { Navbar, NavbarContent, NavbarItem, Link, Dropdown, DropdownTrigger, Avatar, DropdownMenu, DropdownItem, Image, Button } from '@heroui/react';
+import { Navbar, NavbarContent, NavbarItem, Link, Dropdown, DropdownTrigger, Avatar, DropdownMenu, DropdownItem, Image } from '@heroui/react';
 import { AuthContext } from '../contexts/AuthContext';
-import { useRouter } from '@tanstack/react-router';
-
+import {  useRouter } from '@tanstack/react-router';
+import blackEveImage from '../assets/eve-sso-login-black-small.png'
 
 export function NavBar({ authContext }: { authContext: AuthContext }) {
     const isAuthenticated = authContext?.isAuthenticated
@@ -9,7 +9,7 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
 
     const router = useRouter();
 
-    return (<Navbar as="nav" className="bg-gray-800">
+    return (<Navbar as="nav" className="bg-gray-800" maxWidth="full">
         <NavbarContent className="hidden sm:flex gap-4" justify="center">
 
             {isAuthenticated ? (<>
@@ -62,7 +62,7 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
                         Log Out
                     </DropdownItem>
                 </DropdownMenu>
-            </Dropdown>) : (<Button as={Link} isExternal href={`http://localhost:2727/login?src=${window.location.href}`} >Login</Button>)}
+            </Dropdown>) : (<a href={`${window.location.protocol}//${window.location.hostname}:2727/login?src=${window.location.href}`}><Image radius="none" width="135" src={window.location.origin + blackEveImage} loading='eager' /></a>)}
 
         </NavbarContent>
     </Navbar>)
