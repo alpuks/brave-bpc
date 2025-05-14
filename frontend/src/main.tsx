@@ -7,6 +7,7 @@ import { routeTree } from "./routeTree.gen";
 import "./index.css";
 import { Spinner } from "@heroui/react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 
 const router = createRouter({
   routeTree,
@@ -35,7 +36,9 @@ function InnerApp() {
 function App() {
   return (
     <AuthProvider>
-      <InnerApp />
+      <ThemeProvider>
+        <InnerApp />
+      </ThemeProvider>
     </AuthProvider>
   )
 }

@@ -9,10 +9,13 @@ import {
   DropdownMenu,
   DropdownItem,
   Image,
+  Switch,
 } from "@heroui/react";
 import { AuthContext } from "../contexts/AuthContext";
 import { useRouter } from "@tanstack/react-router";
 import blackEveImage from "../assets/eve-sso-login-black-small.png";
+import { MoonIcon, SunIcon } from "./Icons";
+import { useTheme } from "../contexts/ThemeContext";
 
 export function NavBar({ authContext }: { authContext: AuthContext }) {
   const isAuthenticated = authContext?.isAuthenticated;
@@ -20,43 +23,56 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
 
   const router = useRouter();
 
+  const {theme, toggleTheme} = useTheme()
+
   return (
     <Navbar as="nav" className="bg-gray-800" maxWidth="full">
       <NavbarContent className="hidden sm:flex gap-4" justify="center">
         {isAuthenticated ? (
           <>
             <NavbarItem>
-              <Link color="foreground" href="/dashboard">
+              <Link href="/dashboard">
                 Dashboard
               </Link>
             </NavbarItem>
             <NavbarItem>
-              <Link color="foreground" href="/list">
+              <Link href="/list">
                 List
               </Link>
             </NavbarItem>
             <NavbarItem>
-              <Link color="foreground" href="/requests">
+              <Link href="/requests">
                 Requests
               </Link>
             </NavbarItem>
           </>
         ) : (
           <NavbarItem>
-            <Link color="foreground" href="/">
+            <Link href="/">
               Home
             </Link>
           </NavbarItem>
         )}
         {user?.auth_level === "admin" && (
           <NavbarItem>
-            <Link color="foreground" href="/admin">
+            <Link href="/admin">
               Admin
             </Link>
           </NavbarItem>
         )}
       </NavbarContent>
+      
       <NavbarContent as="div" justify="end">
+      <Switch
+          isSelected={theme === "dark"}
+          color="success"
+          endContent={<MoonIcon />}
+          size="lg"
+          startContent={<SunIcon />}
+          onChange={()=>toggleTheme()}
+        >
+          Dark mode
+        </Switch>
         {isAuthenticated ? (
           <Dropdown placement="bottom-end">
             <DropdownTrigger>
