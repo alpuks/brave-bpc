@@ -1,12 +1,16 @@
 import { HeroUIProvider, Link } from "@heroui/react";
-import { Outlet, createRootRouteWithContext  } from "@tanstack/react-router";
+import {
+  Outlet,
+  createRootRouteWithContext,
+  useRouter,
+} from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { AuthContext } from "../contexts/AuthContext";
 import { NavBar } from "../components/NavBar";
 import { useTheme } from "../contexts/ThemeContext";
-
+import type { NavigateOptions, ToOptions } from "@tanstack/react-router";
 interface MyRouterContext {
-  auth: AuthContext
+  auth: AuthContext;
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({
@@ -15,25 +19,36 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
     return (
       <div className="flex gap-4">
         <p>Page not found</p>
-        <Link showAnchorIcon href="/">Back Home</Link>
+        <Link showAnchorIcon href="/">
+          Back Home
+        </Link>
       </div>
-    )
+    );
   },
 });
+declare module "@react-types/shared" {
+  interface RouterConfig {
+    href: ToOptions["to"];
+    routerOptions: Omit<NavigateOptions, keyof ToOptions>;
+  }
+}
 
 function RootComponent() {
-  const {auth} = Route.useRouteContext()
-  const {theme} = useTheme()
-  // TODO add light/dark mode toggle via adding dark to className
+  const { auth } = Route.useRouteContext();
+  const { theme } = useTheme();
+
+  const router = useRouter();
+
   return (
-
-      <HeroUIProvider>
-        <main className={`${theme} text-foreground bg-background`}>
-          <NavBar authContext={auth}/>
-          <Outlet />
-          <TanStackRouterDevtools />
-        </main>
-      </HeroUIProvider>
-
+    <HeroUIProvider
+      navigate={(to, options) => router.navigate({ to, ...options })}
+      useHref={(to) => router.buildLocation({ to }).href}
+    >
+      <main className={`${theme} text-foreground bg-background`}>
+        <NavBar authContext={auth} />
+        <Outlet />
+        <TanStackRouterDevtools />
+      </main>
+    </HeroUIProvider>
   );
 }
