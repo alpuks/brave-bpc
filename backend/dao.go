@@ -291,7 +291,7 @@ VALUES`+strings.Join(scopeValues, ","), params...)
 		sessionScopes = make([]string, len(scopes))
 	}
 	sessionScopes = append(sessionScopes.([]string), scopes...)
-	session.Values[sessionScopes] = sessionScopes
+	session.Values[sessionLoginScopes{}] = sessionScopes
 
 	return nil
 }
