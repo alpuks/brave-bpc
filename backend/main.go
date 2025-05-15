@@ -264,11 +264,21 @@ func (app *app) updateBlueprintInventory(logger *zap.Logger) (
 	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
 	error,
 ) {
-	start := time.Now()
-	tsps := app.dao.getTokenForCharacter(logger, app.config.AdminCharacter, []string{string(glue.EsiScope_CorporationsReadBlueprints_v1)})
-	toks := app.createTokens(tsps)
-	if len(toks) == 0 {
-		return nil, nil, errors.New("error creating esi token")
+	var (
+		start    time.Time
+		toks     []scopeSourcePair
+		attempts int
+	)
+	for len(toks) == 0 {
+		start = time.Now()
+		tsps := app.dao.getTokenForCharacter(logger, app.config.AdminCharacter, []string{string(glue.EsiScope_CorporationsReadBlueprints_v1)})
+
+		toks = app.createTokens(tsps)
+		if len(toks) == 0 {
+			attempts++
+			logger.Error("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter), zap.Int("attempts", attempts))
+			time.Sleep(time.Minute)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
