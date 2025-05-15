@@ -14,4 +14,8 @@ var (
 		Name: "blueprint_fetch_http_duration_seconds",
 		Help: "Time taken to collect all blueprint pages",
 	})
+	logCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "bpc_log_count",
+		Help: "The number of logs (by type) that have been fired",
+	}, []string{"level"})
 )
