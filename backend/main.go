@@ -112,7 +112,7 @@ func main() {
 
 	app.dao = newDao(logger)
 	defer app.dao.db.Close()
-	app.dao.runMigrations(logger)
+	app.dao.runMigrations(logger, len(app.runtimeConfig.migrateDown) > 0)
 
 	app.config, err = app.dao.loadAppConfig()
 	if err != nil {

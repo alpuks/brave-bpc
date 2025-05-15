@@ -39,40 +39,28 @@ const (
 )
 
 func newDefaultLogger(env string) *zap.Logger {
-	var (
-		logger *zap.Logger
-		core   zapcore.Core
-		opts   []zap.Option
-	)
+	cfg := zap.NewProductionEncoderConfig()
+	cfg.EncodeTime = zapcore.ISO8601TimeEncoder
 
-	// this instance of Getenv does not account for vars loaded from .env file
-	switch env {
-	case "dev", "development":
-		core = zapcore.NewCore(
-			zaplogfmt.NewEncoder(zap.NewDevelopmentEncoderConfig()),
-			os.Stderr,
-			zapcore.DebugLevel,
-		)
-		opts = []zap.Option{
-			zap.AddStacktrace(zapcore.ErrorLevel),
-			zap.Development(),
-		}
-
-	default:
-		cfg := zap.NewProductionEncoderConfig()
-		cfg.EncodeTime = zapcore.ISO8601TimeEncoder
-		core = zapcore.NewCore(
-			zaplogfmt.NewEncoder(cfg),
-			os.Stderr,
-			zapcore.InfoLevel,
-		)
-		opts = []zap.Option{
-			zap.AddStacktrace(zapcore.ErrorLevel),
-		}
+	opts := []zap.Option{
+		zap.AddStacktrace(zapcore.ErrorLevel),
 	}
 
-	logger = zap.New(core, opts...)
+	logLevel := zapcore.InfoLevel
+	if env == "dev" {
+		logLevel = zapcore.DebugLevel
+		opts = append(opts, zap.Development())
+	}
+
+	logger := zap.New(
+		zapcore.NewCore(
+			zaplogfmt.NewEncoder(cfg),
+			os.Stderr,
+			logLevel,
+		), opts...)
+
 	zap.RedirectStdLog(logger)
+
 	return logger
 }
 

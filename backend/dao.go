@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -296,21 +295,21 @@ VALUES`+strings.Join(scopeValues, ","), params...)
 	return nil
 }
 
-func (d *dao) runMigrations(logger *zap.Logger) {
+func (d *dao) runMigrations(logger *zap.Logger, migrateDown bool) {
 	var err error
 	goose.SetBaseFS(embedMigrations)
-	goose.SetLogger(zap.NewStdLog(logger))
+	goose.SetLogger(zap.NewStdLog(logger.Named("goose")))
 
 	if err = goose.SetDialect("mysql"); err != nil {
 		logger.Fatal("unable to setup db for migrations", zap.Error(err))
 	}
-	if os.Getenv(envMigrateDown) != "" {
-		logger.Debug("migrate db down")
+
+	if migrateDown {
 		if err = goose.Down(d.db, "migrations"); err != nil {
 			logger.Warn("unable to down migrations", zap.Error(err))
 		}
 	}
-	logger.Debug("migrate db up")
+
 	if err = goose.Up(d.db, "migrations"); err != nil {
 		logger.Fatal("unable to up migrations", zap.Error(err))
 	}
