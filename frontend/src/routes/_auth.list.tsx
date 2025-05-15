@@ -176,9 +176,9 @@ function RouteComponent() {
         placeholder="Search items..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-64"
+        className="font-semibold w-64 p-2"
       />
-      <Table aria-label="Collapsible selectable table" isStriped removeWrapper>
+      <Table aria-label="Collapsible selectable table" isStriped >
         <TableHeader>
           <TableColumn
             onClick={() => handleSort("name")}
@@ -191,7 +191,8 @@ function RouteComponent() {
           <TableColumn className="cursor-pointer">TE</TableColumn>
           <TableColumn className="cursor-pointer">Runs</TableColumn>
           <TableColumn className="cursor-pointer">Quantity</TableColumn>
-          <TableColumn>Choose</TableColumn>
+		  <TableColumn children={undefined}></TableColumn>
+          <TableColumn>Select</TableColumn>
         </TableHeader>
         <TableBody>
           {filteredGroups.map(([groupId, items]) => {
@@ -220,6 +221,7 @@ function RouteComponent() {
                       </TableCell>
                       <TableCell children={undefined} />
                       <TableCell children={undefined} />
+					  <TableCell children={undefined} />
                     </TableRow>
 
                     {expandedGroups.has(groupId) &&
@@ -230,15 +232,8 @@ function RouteComponent() {
                           <TableCell>{item.material_efficiency}</TableCell>
                           <TableCell>{item.time_efficiency}</TableCell>
                           <TableCell>{item.runs}</TableCell>
-                          <TableCell>{item.quantity}</TableCell>
-                          <TableCell>
-                            <Checkbox
-                              isSelected={selectedItems.has(item.item_id)}
-                              onValueChange={(checked) =>
-                                toggleItemSelection(item.item_id, checked)
-                              }
-                            />
-                            {selectedItems.has(item.item_id) && (
+                          <TableCell>{item.quantity} </TableCell>
+						  <TableCell>{selectedItems.has(item.item_id) && (
                               <NumberInput
                                 size="sm"
                                 className="w-20 mt-1"
@@ -251,7 +246,15 @@ function RouteComponent() {
                                   updateItemValue(item.item_id, e)
                                 }
                               />
-                            )}
+                            )}</TableCell>
+                          <TableCell>
+                            <Checkbox
+                              isSelected={selectedItems.has(item.item_id)}
+                              onValueChange={(checked) =>
+                                toggleItemSelection(item.item_id, checked)
+                              }
+                            />
+                            
                           </TableCell>
                         </TableRow>
                       ))}
@@ -259,7 +262,7 @@ function RouteComponent() {
                 ) : (
                   items.map((item) => (
                     <TableRow key={item.item_id}>
-                      <TableCell className="font-semibold">
+                      <TableCell className="flex items-center gap-2 font-semibold">
                         <Avatar
                           radius="none"
                           src={`https://images.evetech.net/types/${item.type_id}/bpc`}
@@ -270,15 +273,8 @@ function RouteComponent() {
                       <TableCell>{item.material_efficiency}</TableCell>
                       <TableCell>{item.time_efficiency}</TableCell>
                       <TableCell>{item.runs}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
-                      <TableCell>
-                        <Checkbox
-                          isSelected={selectedItems.has(item.item_id)}
-                          onValueChange={(checked) =>
-                            toggleItemSelection(item.item_id, checked)
-                          }
-                        />
-                        {selectedItems.has(item.item_id) && (
+                      <TableCell>{item.quantity} </TableCell>
+					  <TableCell>{selectedItems.has(item.item_id) && (
                           <NumberInput
                             size="sm"
                             className="w-20 mt-1"
@@ -289,7 +285,15 @@ function RouteComponent() {
                               updateItemValue(item.item_id, e)
                             }
                           />
-                        )}
+                        )}</TableCell>
+                      <TableCell>
+                        <Checkbox
+                          isSelected={selectedItems.has(item.item_id)}
+                          onValueChange={(checked) =>
+                            toggleItemSelection(item.item_id, checked)
+                          }
+                        />
+                        
                       </TableCell>
                     </TableRow>
                   ))
