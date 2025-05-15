@@ -75,7 +75,7 @@ type app struct {
 
 func main() {
 	runtimeConfig, err := loadEnv()
-	logger := newDefaultLogger()
+	logger := newDefaultLogger(runtimeConfig.environment)
 	defer logger.Sync()
 
 	if errors.Is(err, fs.ErrNotExist) {

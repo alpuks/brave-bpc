@@ -38,29 +38,41 @@ const (
 	cookieUser    = "brave-bpc"
 )
 
-func newDefaultLogger() *zap.Logger {
+func newDefaultLogger(env string) *zap.Logger {
 	var (
 		logger *zap.Logger
-		err    error
+		core   zapcore.Core
+		opts   []zap.Option
 	)
 
 	// this instance of Getenv does not account for vars loaded from .env file
-	switch os.Getenv(envEnvironment) {
-	default:
-		if logger, err = zap.NewDevelopment(); err != nil {
-			panic(err)
+	switch env {
+	case "dev", "development":
+		core = zapcore.NewCore(
+			zaplogfmt.NewEncoder(zap.NewDevelopmentEncoderConfig()),
+			os.Stderr,
+			zapcore.DebugLevel,
+		)
+		opts = []zap.Option{
+			zap.AddStacktrace(zapcore.ErrorLevel),
+			zap.Development(),
 		}
 
-	case "prod", "production":
+	default:
 		cfg := zap.NewProductionEncoderConfig()
 		cfg.EncodeTime = zapcore.ISO8601TimeEncoder
-		logger = zap.New(zapcore.NewCore(
+		core = zapcore.NewCore(
 			zaplogfmt.NewEncoder(cfg),
-			os.Stdout,
+			os.Stderr,
 			zapcore.InfoLevel,
-		), zap.AddStacktrace(zapcore.ErrorLevel))
+		)
+		opts = []zap.Option{
+			zap.AddStacktrace(zapcore.ErrorLevel),
+		}
 	}
 
+	logger = zap.New(core, opts...)
+	zap.RedirectStdLog(logger)
 	return logger
 }
 
