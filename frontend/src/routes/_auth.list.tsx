@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Table,
   TableHeader,
@@ -10,7 +10,7 @@ import {
   Input,
   Checkbox,
   Avatar,
-  
+  NumberInput,
 } from "@heroui/react";
 
 export const Route = createFileRoute("/_auth/list")({
@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_auth/list")({
 });
 
 export interface Blueprint {
-	name?:string;
+  name?: string;
   item_id: number;
   location_flag: string;
   location_id: number;
@@ -28,56 +28,69 @@ export interface Blueprint {
   material_efficiency?: number;
   time_efficiency?: number;
 }
-const responseData = `{"4410":[{"item_id":1046392647306,"location_flag":"CorpSAG1","location_id":1049281607545,"quantity":1,"runs":3,"type_id":4410},{"item_id":1047447115336,"location_flag":"CorpSAG1","location_id":1049281607545,"quantity":14,"runs":25,"type_id":4410}],"81043":[{"item_id":1049172803948,"location_flag":"CorpSAG1","location_id":1049281607545,"material_efficiency":10,"quantity":2,"runs":1,"time_efficiency":20,"type_id":81043}]}`
 function RouteComponent() {
+  const [blueprints, setBlueprints] = useState(new Map<string, Blueprint[]>());
+  const [nameMap, setNameMap] = useState(new Map<string, string>());
 
-//   const [blueprints, setBlueprints] = useState(new Map<string, Blueprint[]>());
-//   const [loading, setLoading] = useState(true);
+  type ArrayItem = {
+    item_id: number;
+    quantity: number;
+    runs: number;
+    type_id: number;
+    material_efficiency?: number;
+    time_efficiency?: number;
+  };
 
-// lets load once, then do everything else in-memory
-	const bpResponse = JSON.parse(responseData)
+  useEffect(() => {
+    const fetchNameMap = async () => {
+      const response = await fetch(
+        `${window.location.protocol}//${window.location.hostname}:2727/api/namemap`,
+        {
+          method: "GET",
+          credentials: "include",
+          mode: "cors",
+        }
+      );
+      const data = await response.json();
 
-	const dataMap = new Map<string, Blueprint[]>(Object.entries(bpResponse));
-	// what structure I want for easier sorting/grouping
-	type ArrayItem = {
-		item_id: number
-		name: string;
-		quantity: number
-		runs: number;
-		type_id: number
-		material_efficiency?: number
-		time_efficiency?: number
-	}
-	// 
+      const map = new Map<string, string>(Object.entries(data));
+      setNameMap(map);
+      return;
+    };
 
-  
-//   useEffect(() => {
-//     setLoading(true);
-//     fetch(
-//       `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
-//       {
-//         method: "GET",
-//         credentials: "include",
-//         mode: "cors",
-//       }
-//     )
-//       .then((response) => response.json())
-//       .then((bluePrints) => {
-//         let map = new Map(Object.entries(bluePrints));
-//         // TODO - FIGURE out which format to use for this whole mess
-//         setBlueprints(map);
-//       })
-//       .finally(() => setLoading(false));
-//   }, []);
-	  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<keyof ArrayItem>('name');
+    const fetchBlueprints = async () => {
+      const response = await fetch(
+        `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
+        {
+          method: "GET",
+          credentials: "include",
+          mode: "cors",
+        }
+      );
+      const data = await response.json();
+
+      const map = new Map<string, Blueprint[]>(Object.entries(data));
+      setBlueprints(map);
+      return;
+    };
+
+    fetchNameMap()
+      .then(() => fetchBlueprints().catch((err) => console.error(err)))
+      .catch((err) => console.error(err));
+  }, []);
+
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<keyof Blueprint>("name");
   const [sortAsc, setSortAsc] = useState(true);
-  const [selectedItems, setSelectedItems] = useState<Map<number, number>>(new Map());
+  const [selectedItems, setSelectedItems] = useState<Map<number, number>>(
+    new Map()
+  );
 
-	const toggleExpand = (groupId: string) => {
-    setExpandedGroups(prev => {
+  const toggleExpand = (groupId: string) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev);
+      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       next.has(groupId) ? next.delete(groupId) : next.add(groupId);
       return next;
     });
@@ -91,9 +104,15 @@ function RouteComponent() {
       setSortAsc(true);
     }
   };
+  const getTotalSelectedQuantity = () => {
+    return Array.from(selectedItems.values()).reduce(
+      (sum, qty) => sum + qty,
+      0
+    );
+  };
 
   const toggleItemSelection = (itemId: number, checked: boolean) => {
-    setSelectedItems(prev => {
+    setSelectedItems((prev) => {
       const next = new Map(prev);
       if (checked) {
         next.set(itemId, 1);
@@ -105,7 +124,8 @@ function RouteComponent() {
   };
 
   const updateItemValue = (itemId: number, value: number) => {
-    setSelectedItems(prev => {
+    //TODO add check for max count
+    setSelectedItems((prev) => {
       const next = new Map(prev);
       if (next.has(itemId)) {
         next.set(itemId, value);
@@ -113,46 +133,65 @@ function RouteComponent() {
       return next;
     });
   };
- const filteredGroups = useMemo(() => {
-    return Array.from(dataMap.entries()).map(([groupId, items]) => {
-    //   const filteredItems = items.filter(item =>
-    //     item.name.toLowerCase().includes(search.toLowerCase())
-    //   );
-	  const filteredItems = items
-	  // TODO remove above workaround since there are no names
-      const sortedItems = [...filteredItems].sort((a, b) => {
-        const valA = a[sortKey];
-        const valB = b[sortKey];
-        if (valA == null) return 1;
-        if (valB == null) return -1;
-        return (valA > valB ? 1 : -1) * (sortAsc ? 1 : -1);
-      });
+  const filteredGroups = useMemo(() => {
+    const filteredItems = Array.from(blueprints.entries()).map(
+      ([groupId, items]) => {
+        const filteredItems = items.filter((item) => {
+          if (nameMap.has(`${item.type_id}`)) {
+            //@ts-expect-error check above
+            return nameMap
+              .get(`${item.type_id}`)
+              .toLowerCase()
+              .includes(search.toLowerCase());
+          } else {
+            return true;
+          }
+        });
 
-      return [groupId, sortedItems] as [string, ArrayItem[]];
+        return [groupId, filteredItems] as [string, ArrayItem[]];
+      }
+    );
+
+    const sortedItems = [...filteredItems].sort((a, b) => {
+      let valA = a[0];
+      let valB = b[0];
+      if (sortKey === "name") {
+        valA = nameMap.get(`${a[0]}`) || "";
+        valB = nameMap.get(`${b[0]}`) || "";
+      } else {
+        valA = a[1][sortKey];
+        valB = b[1][sortKey];
+      }
+      if (valA == null) return 1;
+      if (valB == null) return -1;
+      return (valA > valB ? 1 : -1) * (sortAsc ? 1 : -1);
     });
-  }, [search, sortKey, sortAsc]);
+    return sortedItems;
+  }, [search, sortKey, sortAsc, blueprints]);
 
-
-
-
-
-
- 
   return (
-	<div>
-		<Input
+    <div>
+      <Input
         placeholder="Search items..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="w-64"
+        className="font-semibold w-64 p-2"
       />
-	  <Table aria-label="Collapsible selectable table" isStriped removeWrapper>
+      <Table aria-label="Collapsible selectable table" isStriped >
         <TableHeader>
+          <TableColumn
+            onClick={() => handleSort("name")}
+            className="cursor-pointer"
+          >
+            Name
+          </TableColumn>
           <TableColumn>Group</TableColumn>
-          <TableColumn onClick={() => handleSort('name')} className="cursor-pointer">Name</TableColumn>
-          <TableColumn className="cursor-pointer">Quantity</TableColumn>
+          <TableColumn className="cursor-pointer">ME</TableColumn>
+          <TableColumn className="cursor-pointer">TE</TableColumn>
           <TableColumn className="cursor-pointer">Runs</TableColumn>
-          <TableColumn>Choose</TableColumn>
+          <TableColumn className="cursor-pointer">Quantity</TableColumn>
+		  <TableColumn children={undefined}></TableColumn>
+          <TableColumn>Select</TableColumn>
         </TableHeader>
         <TableBody>
           {filteredGroups.map(([groupId, items]) => {
@@ -168,35 +207,53 @@ function RouteComponent() {
                       className="cursor-pointer"
                     >
                       <TableCell className="flex items-center gap-2 font-semibold">
-						<Avatar radius="none" src={`https://images.evetech.net/types/${items[0].type_id}/bpc`} />
-                        {groupId}
+                        <Avatar
+                          radius="none"
+                          src={`https://images.evetech.net/types/${items[0].type_id}/bpc`}
+                        />
+                        {nameMap.get(groupId)}
                       </TableCell>
                       <TableCell colSpan={4} className="text-sm text-gray-500">
-                        {expandedGroups.has(groupId) ? "Click to collapse" : "Click to expand"}
+                        {expandedGroups.has(groupId)
+                          ? "Click to collapse"
+                          : "Click to expand"}
                       </TableCell>
+                      <TableCell children={undefined} />
+                      <TableCell children={undefined} />
+					  <TableCell children={undefined} />
                     </TableRow>
 
                     {expandedGroups.has(groupId) &&
                       items.map((item) => (
                         <TableRow key={item.item_id}>
                           <TableCell children={undefined} />
-                          <TableCell>{item.name}</TableCell>
-                          <TableCell>{item.quantity}</TableCell>
+                          <TableCell children={undefined}>{}</TableCell>
+                          <TableCell>{item.material_efficiency}</TableCell>
+                          <TableCell>{item.time_efficiency}</TableCell>
                           <TableCell>{item.runs}</TableCell>
+                          <TableCell>{item.quantity} </TableCell>
+						  <TableCell>{selectedItems.has(item.item_id) && (
+                              <NumberInput
+                                size="sm"
+                                className="w-20 mt-1"
+                                minValue={1}
+                                maxValue={item.quantity}
+                                defaultValue={
+                                  selectedItems.get(item.item_id) || 1
+                                }
+                                onValueChange={(e) =>
+                                  updateItemValue(item.item_id, e)
+                                }
+                              />
+                            )}</TableCell>
                           <TableCell>
                             <Checkbox
                               isSelected={selectedItems.has(item.item_id)}
-                              onValueChange={(checked) => toggleItemSelection(item.item_id, checked)}
+                              onValueChange={(checked) =>
+                                toggleItemSelection(item.item_id, checked)
+                              }
                             />
-                            {selectedItems.has(item.item_id) && (
-                              <Input
-                                type="number"
-                                size="sm"
-                                className="w-20 mt-1"
-                                value={selectedItems.get(item.item_id)?.toString() || '1'}
-                                onChange={(e) => updateItemValue(item.item_id, Number(e.target.value))}
-                              />
-                            )}
+                            
                           </TableCell>
                         </TableRow>
                       ))}
@@ -204,24 +261,38 @@ function RouteComponent() {
                 ) : (
                   items.map((item) => (
                     <TableRow key={item.item_id}>
-                      <TableCell className="font-semibold"><Avatar radius="none" src={`https://images.evetech.net/types/${item.type_id}/bpc`} />{groupId}</TableCell>
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell>{item.quantity}</TableCell>
+                      <TableCell className="flex items-center gap-2 font-semibold">
+                        <Avatar
+                          radius="none"
+                          src={`https://images.evetech.net/types/${item.type_id}/bpc`}
+                        />
+                        {nameMap.get(groupId)}
+                      </TableCell>
+                      <TableCell children={undefined}></TableCell>
+                      <TableCell>{item.material_efficiency}</TableCell>
+                      <TableCell>{item.time_efficiency}</TableCell>
                       <TableCell>{item.runs}</TableCell>
+                      <TableCell>{item.quantity} </TableCell>
+					  <TableCell>{selectedItems.has(item.item_id) && (
+                          <NumberInput
+                            size="sm"
+                            className="w-20 mt-1"
+                            minValue={1}
+                            maxValue={item.quantity}
+                            defaultValue={selectedItems.get(item.item_id) || 1}
+                            onValueChange={(e) =>
+                              updateItemValue(item.item_id, e)
+                            }
+                          />
+                        )}</TableCell>
                       <TableCell>
                         <Checkbox
                           isSelected={selectedItems.has(item.item_id)}
-                          onValueChange={(checked) => toggleItemSelection(item.item_id, checked)}
+                          onValueChange={(checked) =>
+                            toggleItemSelection(item.item_id, checked)
+                          }
                         />
-                        {selectedItems.has(item.item_id) && (
-                          <Input
-                            type="number"
-                            size="sm"
-                            className="w-20 mt-1"
-                            value={selectedItems.get(item.item_id)?.toString() || '1'}
-                            onChange={(e) => updateItemValue(item.item_id, Number(e.target.value))}
-                          />
-                        )}
+                        
                       </TableCell>
                     </TableRow>
                   ))
@@ -231,7 +302,6 @@ function RouteComponent() {
           })}
         </TableBody>
       </Table>
-	</div>
-
-  )
+    </div>
+  );
 }
