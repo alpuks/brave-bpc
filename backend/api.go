@@ -89,6 +89,8 @@ func (app *app) getBlueprints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) getNameMap(w http.ResponseWriter, r *http.Request){
+	//TODO caching
+	//TODO limit ID count in ESI call
 	keys := app.bpcs.Keys()
 	if len(keys) > 0 {
 		names, resp, err := app.esi.ESI.UniverseApi.PostUniverseNames(context.Background(), keys, nil)
