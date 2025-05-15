@@ -99,26 +99,44 @@ func dbConnectString() string {
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
-// loads .env file and sets any unset env vars
-func (app *app) loadEnv() {
+var errEnvFile = errors.New("failed to load .env file")
+
+// loadEnv parses the contents of .env and sets any unset environment variables
+func loadEnv() (*runtimeConfig, error) {
 	fp, err := os.Open("./.env")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			app.logger.Info("failed to read .env file", zap.Error(err))
-			return
+			return nil, err
 		}
-		app.logger.Warn("failed to read .env file", zap.Error(err))
-		return
+		return nil, errors.Join(errEnvFile, err)
 	}
+	defer fp.Close()
 
 	env, err := envparse.Parse(fp)
 	if err != nil {
-		app.logger.Fatal("error parsing .env file", zap.Error(err))
+		return nil, err
 	}
 
 	for k, v := range env {
 		setUnsetEnv(k, v)
 	}
+
+	skewStr := getEnvWithDefault(envJwtSkew, "5m")
+	skew, err := time.ParseDuration(skewStr)
+	if err != nil {
+		skew = time.Second
+		return nil, fmt.Errorf("error parsing jwt skew env var: %w", err)
+	}
+
+	return &runtimeConfig{
+		appId:       os.Getenv(envAppId),
+		appSecret:   os.Getenv(envAppSecret),
+		appRedirect: os.Getenv(envAppRedirect),
+		environment: os.Getenv(envEnvironment),
+		migrateDown: os.Getenv(envMigrateDown),
+		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
+		jwtSkew:     skew,
+	}, nil
 }
 
 // checks if an environment variable has been set.

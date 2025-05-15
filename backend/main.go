@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -73,9 +74,18 @@ type app struct {
 }
 
 func main() {
-	var err error
+	runtimeConfig, err := loadEnv()
 	logger := newDefaultLogger()
 	defer logger.Sync()
+
+	if errors.Is(err, fs.ErrNotExist) {
+		logger.Info("ignoring missing .env file", zap.Error(err))
+	} else if errors.Is(err, errEnvFile) {
+		err = err.(interface{ Unwrap() []error }).Unwrap()[1]
+		logger.Error("failed to open .env file", zap.Error(err))
+	} else if err != nil {
+		logger.Fatal("failed to parse .env file", zap.Error(err))
+	}
 
 	app := &app{
 		logger:           logger,
@@ -85,23 +95,7 @@ func main() {
 		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
 		bpcs:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
 		requisitionLocks: newSyncMap[int64, int32](),
-	}
-
-	app.loadEnv() // load .env file into os env
-	skewStr := getEnvWithDefault(envJwtSkew, "5m")
-	skew, err := time.ParseDuration(skewStr)
-	if err != nil {
-		logger.Warn("error parsing jwt acceptable skew", zap.String("skew", skewStr))
-		skew = time.Second
-	}
-	app.runtimeConfig = &runtimeConfig{
-		appId:       os.Getenv(envAppId),
-		appSecret:   os.Getenv(envAppSecret),
-		appRedirect: os.Getenv(envAppRedirect),
-		environment: os.Getenv(envEnvironment),
-		migrateDown: os.Getenv(envMigrateDown),
-		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
-		jwtSkew:     skew,
+		runtimeConfig:    runtimeConfig,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
