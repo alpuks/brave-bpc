@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -65,6 +66,10 @@ func (app *app) authMiddlewareFactory(requiredLevel int) func(next http.Handler)
 func apiMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add(headerContentType, headerContentJson)
+		if os.Getenv(envEnvironment) == "dev" {
+			w.Header().Add("Access-Control-Allow-Origin", "http://localhost:3000")
+			w.Header().Add("Access-Control-Allow-Credentials", "true")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
