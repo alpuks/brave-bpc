@@ -10,6 +10,8 @@ import {
   DropdownItem,
   Image,
   Switch,
+  NavbarBrand,
+  User,
 } from "@heroui/react";
 import { AuthContext } from "../contexts/AuthContext";
 import { useRouter } from "@tanstack/react-router";
@@ -24,78 +26,63 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
 
   const router = useRouter();
 
-  const {theme, toggleTheme} = useTheme()
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <Navbar as="nav" className="bg-gray-800" maxWidth="full">
-      <NavbarContent className="hidden sm:flex gap-4" justify="center">
-        {isAuthenticated ? (
+      <NavbarContent className="hidden sm:flex gap-4" justify="start">
+        <NavbarBrand>
+          <Link href="/" className="text-2xl font-bold text-white">
+            Brave BPC
+          </Link>
+        </NavbarBrand>
+        {isAuthenticated && (
           <>
             <NavbarItem>
-              <Link href="/dashboard">
-                Dashboard
-              </Link>
+              <Link href="/dashboard">Dashboard</Link>
             </NavbarItem>
             <NavbarItem>
-              <Link href="/list">
-                List
-              </Link>
+              <Link href="/list">List</Link>
             </NavbarItem>
             <NavbarItem>
-              <Link href="/requests">
-                Requests
-              </Link>
+              <Link href="/requests">Requests</Link>
             </NavbarItem>
           </>
-        ) : (
-          <NavbarItem>
-            <Link href="/">
-              Home
-            </Link>
-          </NavbarItem>
         )}
         {user?.auth_level === "admin" && (
           <NavbarItem>
-            <Link href="/admin">
-              Admin
-            </Link>
+            <Link href="/admin">Admin</Link>
           </NavbarItem>
         )}
       </NavbarContent>
-      
+
       <NavbarContent as="div" justify="end">
-      <Switch
+        <Switch
           isSelected={theme === "dark"}
           color="success"
           endContent={<MoonIcon />}
           size="lg"
           startContent={<SunIcon />}
-          onChange={()=>toggleTheme()}
-        >
-          Dark mode
-        </Switch>
+          onChange={() => toggleTheme()}
+        ></Switch>
         {isAuthenticated ? (
           <Dropdown placement="bottom-end">
             <DropdownTrigger>
-              <Avatar
-                isBordered
-                as="button"
-                className="transition-transform"
-                color="secondary"
+              <User
+                avatarProps={{
+                  src:
+                    "https://images.evetech.net/characters/" +
+                    user?.character_id +
+                    "/portrait",
+                  isBordered:true,
+                  radius:"sm",
+                  color:"default"
+                }}
                 name={user?.character_name}
-                size="sm"
-                src={
-                  "https://images.evetech.net/characters/" +
-                  user?.character_id +
-                  "/portrait"
-                }
+                className="text-white"
               />
             </DropdownTrigger>
             <DropdownMenu aria-label="Profile Actions" variant="flat">
-              <DropdownItem key="profile" className="h-14 gap-2">
-                <p className="font-semibold">Signed in as</p>
-                <p className="font-semibold">{user?.character_name}</p>
-              </DropdownItem>
               <DropdownItem
                 key="logout"
                 color="danger"
@@ -114,7 +101,10 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
             <Image
               radius="none"
               width="135"
-              src={window.location.origin + (theme === "dark" ? whiteEveImage : blackEveImage)}
+              src={
+                window.location.origin +
+                (theme === "dark" ? whiteEveImage : blackEveImage)
+              }
               loading="eager"
             />
           </a>
