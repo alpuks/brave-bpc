@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/AlHeamer/brave-bpc/glue"
@@ -141,7 +142,6 @@ func main() {
 	done := make(chan struct{})
 	go app.ticker(done)
 
-	logger.Info("http service listening", zap.String("port", app.runtimeConfig.httpPort))
 	server := &http.Server{
 		Addr:         ":" + app.runtimeConfig.httpPort,
 		Handler:      mux,
@@ -149,15 +149,19 @@ func main() {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
+
 	go func() {
-		err := server.ListenAndServe()
-		if err != nil {
+		logger.Info("http service listening",
+			zap.String("port", app.runtimeConfig.httpPort),
+			zap.String("environment", app.runtimeConfig.environment))
+
+		if err := server.ListenAndServe(); err != nil {
 			logger.Error("error serving http", zap.Error(err))
 		}
 	}()
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 	logger.Info("received os interrupt signal, shutting down gracefully")
 
@@ -182,6 +186,7 @@ func (app *app) ticker(done <-chan struct{}) {
 		app.bpos.Overwrite(bpos)
 		app.bpcs.Overwrite(bpcs)
 	}
+
 	for {
 		select {
 		case <-done:
@@ -194,6 +199,7 @@ func (app *app) ticker(done <-chan struct{}) {
 			case "prod", "production":
 				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
 			}
+
 			bpos, bpcs, err = app.updateBlueprintInventory(logger)
 			if err != nil {
 				if errors.Is(err, errErrorsExceeded) {
