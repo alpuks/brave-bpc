@@ -32,9 +32,9 @@ The backend container can now be built and run using
 docker compose up -d --build backend
 ```
 
-Access to npm can be acquired via the node container in the `/app` directory
+Access to npm can be acquired via a node container linked in the `/app` directory
 ``` sh
-docker compose run node bash
+docker run --rm -it --volume ./frontend:/app node:23-alpine sh
 ```
 
 Running the frontend container provides a hotloading webserver at `localhost:3000` for react/frontend development.
@@ -60,3 +60,4 @@ docker compose up -d frontend
     - [ ] Research Queue
   - [ ] Authorized Admin Page
     - [ ] System Settings
+

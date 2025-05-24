@@ -41,20 +41,12 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
+      context: ./frontend
+      target: dev
     container_name: frontend
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-
-  node:
-    image: arm64v8/node:23
-    container_name: node-cmd
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
 
 volumes:
   db-data:
+
