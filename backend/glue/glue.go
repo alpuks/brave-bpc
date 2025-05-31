@@ -252,3 +252,17 @@ const (
 	NameCategory_Station       NameCategory = "station"
 	NameCategory_Faction       NameCategory = "faction"
 )
+
+func ResolveLoctionType[T int32 | int64](locationId T) LocationType {
+	if locationId >= 30_000_000 && locationId < 40_000_000 {
+		return LocationType_SolarSystem
+	}
+	if locationId >= 60_000_000 && locationId < 64_000_000 {
+		return LocationType_Station
+	}
+	if locationId >= 100_000_000 {
+		return LocationType_Item
+	}
+
+	return LocationType_Other
+}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/AlHeamer/brave-bpc/glue"
+	"github.com/antihax/goesi/esi"
 	"github.com/bwmarrin/snowflake"
 	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
@@ -194,4 +196,35 @@ func httpWrite(w http.ResponseWriter, data any) {
 		return
 	}
 	w.Write(buf)
+}
+
+func (app *app) getAdminToken(logger *zap.Logger) scopeSourcePair {
+	tsps := app.dao.getTokenForCharacter(logger, app.config.AdminCharacter, []string{
+		string(glue.EsiScope_AssetsReadCorporationAssets_v1),
+		string(glue.EsiScope_CorporationsReadBlueprints_v1),
+		string(glue.EsiScope_CorporationsReadDivisions_v1),
+		string(glue.EsiScope_IndustryReadCorporationJobs_v1),
+		string(glue.EsiScope_UniverseReadStructures_v1),
+	})
+	toks := app.createTokens(tsps)
+	if len(toks) == 0 {
+		return scopeSourcePair{}
+	}
+	return toks[0]
+}
+
+func sameBlueprintQuality(a esi.GetCorporationsCorporationIdBlueprints200Ok, b esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
+	return a.TypeId == b.TypeId &&
+		a.MaterialEfficiency == b.MaterialEfficiency &&
+		a.TimeEfficiency == b.TimeEfficiency &&
+		a.Runs == b.Runs
+}
+
+func parseEsiError(err error) string {
+	s := map[string]string{}
+	e, ok := err.(esi.GenericSwaggerError)
+	if ok {
+		json.Unmarshal(e.Body(), &s)
+	}
+	return s["error"]
 }

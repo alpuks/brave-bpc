@@ -6,12 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,7 +16,6 @@ import (
 	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
 	"github.com/antihax/goesi/esi"
-	"github.com/antihax/goesi/optional"
 	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -34,6 +30,7 @@ const (
 	headerPages       = "X-Pages"
 	headerErrorRemain = "X-Esi-Error-Limit-Remain" // errors remaining this window
 	headerErrorReset  = "X-Esi-Error-Limit-Reset"  // seconds until the next error window
+	esiRequestTimeout = 20 * time.Second
 )
 
 var (
@@ -67,11 +64,13 @@ type app struct {
 	esi           *goesi.APIClient
 	bpos          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
 	bpcs          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
+	typeNameCache *syncMap[int32, string]
 	//groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
 	//groupTree        map[int32][]int32
 	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
 	jwks             *EsiJwks
+	refreshToken     chan struct{}
 }
 
 func main() {
@@ -95,8 +94,10 @@ func main() {
 		flake:            newSnowflake(logger),
 		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
 		bpcs:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
+		typeNameCache:    newSyncMap[int32, string](),
 		requisitionLocks: newSyncMap[int64, int32](),
 		runtimeConfig:    runtimeConfig,
+		refreshToken:     make(chan struct{}, 1),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -174,194 +175,13 @@ func main() {
 	logger.Info("shutdown complete", zap.Error(err))
 }
 
-func (app *app) ticker(done <-chan struct{}) {
-	logger := app.logger.Named("ticker")
-	time.Sleep(3 * time.Second)
-
-	bpos, bpcs, err := app.updateBlueprintInventory(logger)
-	ticker := time.NewTicker(60 * time.Minute)
-	if err != nil {
-		logger.Error("error updating blueprint inventory", zap.Error(err))
-	} else {
-		app.bpos.Overwrite(bpos)
-		app.bpcs.Overwrite(bpcs)
-	}
-
-	for {
-		select {
-		case <-done:
-			logger.Info("exiting ticker loop")
-			return
-
-		case <-ticker.C:
-			// 1 minute jitter window
-			switch app.runtimeConfig.environment {
-			case "prod", "production":
-				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
-			}
-
-			bpos, bpcs, err = app.updateBlueprintInventory(logger)
-			if err != nil {
-				if errors.Is(err, errErrorsExceeded) {
-					time.Sleep(5 * time.Minute)
-					ticker.Reset(60 * time.Minute)
-				}
-			} else {
-				app.bpos.Overwrite(bpos)
-				app.bpcs.Overwrite(bpcs)
-			}
-		}
-	}
-}
-
-func sameBlueprintQuality(a esi.GetCorporationsCorporationIdBlueprints200Ok, b esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
-	return a.TypeId == b.TypeId &&
-		a.MaterialEfficiency == b.MaterialEfficiency &&
-		a.TimeEfficiency == b.TimeEfficiency &&
-		a.Runs == b.Runs
-}
-
-// filter location before running through this func
-func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) (
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-) {
-	bpos := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
-	bpcs := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
-
-	for _, bp := range blueprints {
-		var (
-			m   map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
-			qty int32 = 1
-		)
-		switch bp.Quantity {
-		case -2: // BPC
-			m = bpcs
-		case -1: // researched BPO
-			m = bpos
-		default: // BPO stack > 0
-			m = bpos
-			qty = bp.Quantity
-		}
-
-		idx := -1
-		if _, ok := m[bp.TypeId]; !ok {
-			m[bp.TypeId] = esi.GetCorporationsCorporationIdBlueprints200OkList{}
-		} else {
-			idx = slices.IndexFunc(m[bp.TypeId], func(e esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
-				return sameBlueprintQuality(e, bp)
-			})
-		}
-
-		if idx == -1 { // equivalent blueprint not found
-			b := bp
-			b.Quantity = qty
-			m[bp.TypeId] = append(m[bp.TypeId], b)
-		} else {
-			m[bp.TypeId][idx].Quantity += qty
-		}
-	}
-
-	return bpos, bpcs
-}
-
-func (app *app) updateBlueprintInventory(logger *zap.Logger) (
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	error,
-) {
-	var (
-		start    time.Time
-		toks     []scopeSourcePair
-		attempts int
-	)
-	for len(toks) == 0 {
-		start = time.Now()
-		tsps := app.dao.getTokenForCharacter(logger, app.config.AdminCharacter, []string{string(glue.EsiScope_CorporationsReadBlueprints_v1)})
-
-		toks = app.createTokens(tsps)
-		if len(toks) == 0 {
-			attempts++
-			logger.Error("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter), zap.Int("attempts", attempts))
-			time.Sleep(time.Minute)
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	esiCtx := context.WithValue(ctx, goesi.ContextOAuth2, toks[0].token)
-
-	//tok, _ := toks[0].token.Token()
-	blueprints, resp, err := app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
-		&esi.GetCorporationsCorporationIdBlueprintsOpts{
-			// IfNoneMatch: etag,
-			Page: optional.NewInt32(1),
-		})
-	if err != nil {
-		logger.Error("error fetching blueprints", zap.Error(err))
-		return nil, nil, fmt.Errorf("could not fetch first page of blueprints: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < http.StatusOK && resp.StatusCode >= http.StatusBadRequest {
-		// some other error happened. print to logs
-		var buf []byte
-		resp.Body.Read(buf)
-		logger.Debug("status not 200", zap.String("status_code", resp.Status), zap.String("body", string(buf)))
-	}
-
-	pages, _ := strconv.ParseInt(resp.Header.Get(headerPages), 10, 64)
-	for page := int32(2); page <= int32(pages); page++ {
-		var bp esi.GetCorporationsCorporationIdBlueprints200OkList
-		bp, resp, err = app.esi.ESI.CorporationApi.GetCorporationsCorporationIdBlueprints(esiCtx, app.config.AdminCorp,
-			&esi.GetCorporationsCorporationIdBlueprintsOpts{
-				Page: optional.NewInt32(page),
-			})
-
-		if err != nil {
-			logger.Warn("error fetching blueprints", zap.Error(err))
-			//return nil, nil, fmt.Errorf("could not fetch first page of blueprints: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode < http.StatusOK && resp.StatusCode >= http.StatusBadRequest {
-			// some other error happened. print to logs
-			var buf []byte
-			resp.Body.Read(buf)
-			logger.Warn("status not 200", zap.String("status_code", resp.Status), zap.String("body", string(buf)))
-		}
-
-		blueprints = append(blueprints, bp...)
-	}
-
-	// TODO: filter blueprint locations
-	bpos, bpcs := coalesceBlueprints(blueprints)
-	locations := buildItemLocationMap(blueprints)
-	_ = locations
-
-	logger.Debug("successfully fetched blueprints", zap.Duration("duration", time.Since(start)))
-	fetchBlueprintDuration.Observe(time.Since(start).Seconds())
-	return bpos, bpcs, nil
-}
-
-func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) map[int64]esi.GetCorporationsCorporationIdBlueprints200OkList {
-	locations := make(map[int64]esi.GetCorporationsCorporationIdBlueprints200OkList)
-	for _, bp := range blueprints {
-		if _, ok := locations[bp.LocationId]; !ok {
-			locations[bp.LocationId] = esi.GetCorporationsCorporationIdBlueprints200OkList{bp}
-			continue
-		}
-		locations[bp.LocationId] = append(locations[bp.LocationId], bp)
-	}
-	return locations
-}
-
 func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context())
 	logger.Debug("root")
 	user := app.getUserFromSession(r)
 	var bp strings.Builder
 	keys := app.bpcs.Keys()
+
 	if user.IsLoggedIn() && len(keys) > 0 {
 		names, resp, err := app.esi.ESI.UniverseApi.PostUniverseNames(context.Background(), keys, nil)
 		if err != nil {
