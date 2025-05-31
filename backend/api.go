@@ -210,12 +210,6 @@ func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
-	s, _ := app.sessionStore.Get(r, cookieSession)
-	if s.IsNew {
-		httpError(w, "not logged in", http.StatusUnauthorized)
-		return
-	}
-
 	reqId, err := strconv.ParseInt(r.PathValue("requsition_id"), 10, 64)
 	if err != nil {
 		httpError(w, "invalid requisition", http.StatusBadRequest)
