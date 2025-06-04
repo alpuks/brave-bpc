@@ -265,9 +265,12 @@ func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 
 	// create rows with refresh token
 	app.doLogin(w, r, []string{
+		string(glue.EsiScope_PublicData),
 		string(glue.EsiScope_AssetsReadCorporationAssets_v1),
 		string(glue.EsiScope_CorporationsReadBlueprints_v1),
+		string(glue.EsiScope_CorporationsReadDivisions_v1),
 		string(glue.EsiScope_IndustryReadCorporationJobs_v1),
+		string(glue.EsiScope_UniverseReadStructures_v1),
 	}, authTypeAddScopes)
 }
 
