@@ -27,18 +27,28 @@ type postRequisitionOrderRequest struct {
 func (app *app) createApiHandlers(mux *http.ServeMux, mw *mwChain) {
 	authChain := mw.Add(apiMiddleware, app.authMiddlewareFactory(authLevel_Authorized))
 	workerChain := mw.Add(apiMiddleware, app.authMiddlewareFactory(authLevel_Worker))
+	adminChain := mw.Add(apiMiddleware, app.authMiddlewareFactory(authLevel_Admin))
 
 	mux.Handle("/api/", mw.Add(apiMiddleware).HandleFunc(apiInvalid))
 
 	mux.Handle("GET /api/blueprints", authChain.HandleFunc(app.getBlueprints))
+
 	mux.Handle("POST /api/requisition", authChain.HandleFunc(app.postRequisitionOrder))
 	mux.Handle("GET /api/requisition", authChain.HandleFunc(app.listRequisitionOrders))
 	mux.Handle("GET /api/requisition/{id}", authChain.HandleFunc(app.getRequisitionOrder))
 	mux.Handle("PATCH /api/requisition/{id}/cancel", authChain.HandleFunc(app.patchRequisitionOrder))
-
 	mux.Handle("PATCH /api/requisition/{id}/{action}", workerChain.HandleFunc(app.patchRequisitionOrder))
+
+	mux.Handle("GET /api/refresh/admin", adminChain.HandleFunc(app.refreshAdminToken))
 	mux.Handle("GET /api/config", workerChain.HandleFunc(app.getConfig))
 	mux.Handle("POST /api/config", workerChain.HandleFunc(app.postConfig))
+}
+
+// change the token which is being used to refresh assets and names. eg. if roles or admin character changes
+func (app *app) refreshAdminToken(w http.ResponseWriter, r *http.Request) {
+	getLoggerFromContext(r.Context()).Debug("refreshAdminToken")
+	app.refreshToken <- struct{}{}
+	httpWrite(w, struct{}{})
 }
 
 func (app *app) getConfig(w http.ResponseWriter, r *http.Request) {
