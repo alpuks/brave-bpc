@@ -59,7 +59,7 @@ func (app *app) ticker(done <-chan struct{}) {
 			logger.Info("exiting ticker loop")
 			return
 
-		case <-app.refreshToken:
+		case <-app.adminTokenChan:
 			now := time.Now()
 			if nextCtxRefresh.Before(now) {
 				logger.Debug("refreshing token")

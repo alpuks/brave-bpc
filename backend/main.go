@@ -70,7 +70,7 @@ type app struct {
 	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
 	jwks             *EsiJwks
-	refreshToken     chan struct{}
+	adminTokenChan   chan struct{}
 }
 
 func main() {
@@ -97,7 +97,7 @@ func main() {
 		typeNameCache:    newSyncMap[int32, string](),
 		requisitionLocks: newSyncMap[int64, int32](),
 		runtimeConfig:    runtimeConfig,
-		refreshToken:     make(chan struct{}, 1),
+		adminTokenChan:   make(chan struct{}, 1),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

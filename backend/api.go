@@ -47,7 +47,7 @@ func (app *app) createApiHandlers(mux *http.ServeMux, mw *mwChain) {
 // change the token which is being used to refresh assets and names. eg. if roles or admin character changes
 func (app *app) refreshAdminToken(w http.ResponseWriter, r *http.Request) {
 	getLoggerFromContext(r.Context()).Debug("refreshAdminToken")
-	app.refreshToken <- struct{}{}
+	app.adminTokenChan <- struct{}{}
 	httpWrite(w, struct{}{})
 }
 
