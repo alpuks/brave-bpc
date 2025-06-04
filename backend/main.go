@@ -217,7 +217,7 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	body := `
 <html>
 <body>
-` + fmt.Sprintf("%v", user) + `
+` + fmt.Sprintf("%+v", user) + `
 <ul>
 <li><a href="/login">login</a>
 <li><a href="/login/char">add character</a>
@@ -234,11 +234,15 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 
 // standard login
 func (app *app) login(w http.ResponseWriter, r *http.Request) {
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("login")
 	app.doLogin(w, r, nil, authTypeLogin)
 }
 
 func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("add char to account")
 	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
@@ -251,6 +255,8 @@ func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
 // director login
 func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 	// check if already logged in
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("add scope to account")
 	s, _ := app.sessionStore.Get(r, cookieSession)
 	if s.IsNew {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
@@ -268,7 +274,7 @@ func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
 // print out the app config data
 func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context())
-	logger.Info("printConfig")
+	logger.Debug("printConfig")
 	body := `
 <html>
 <body>

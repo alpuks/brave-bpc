@@ -75,7 +75,7 @@ SET config=?
 }
 
 func (d *dao) getTokenForCharacter(logger *zap.Logger, characterId int32, roles []string) []scopeRefreshPair {
-	logger = logger.With(zap.Int32("character_id", characterId), zap.Strings("roles", roles))
+	logger = logger.With(zap.Int32("character_id", characterId), zap.Strings("requested_roles", roles))
 
 	params := sqlparams.New()
 	rows, err := d.db.Query(`

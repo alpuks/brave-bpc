@@ -46,6 +46,7 @@ func newDefaultLogger(env string) *zap.Logger {
 
 	opts := []zap.Option{
 		zap.AddStacktrace(zapcore.ErrorLevel),
+		zap.WithCaller(true),
 		zap.Hooks(
 			func(e zapcore.Entry) error {
 				logCount.WithLabelValues(e.Level.String()).Inc()
