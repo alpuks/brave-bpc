@@ -108,6 +108,19 @@ AND s.scope IN(`+params.AddParams(roles)+`)
 		return nil
 	}
 
+	var missing []string
+	for _, scope := range roles {
+		if !slices.ContainsFunc(tsps, func(e scopeRefreshPair) bool {
+			return scope == e.scope
+		}) {
+			missing = append(missing, scope)
+		}
+	}
+
+	if len(missing) > 0 {
+		logger.Error("requested scope(s) not found for toon", zap.Strings("missing_roles", missing))
+	}
+
 	return tsps
 }
 
@@ -203,11 +216,13 @@ func (d *dao) addScopes(logger *zap.Logger, userId int64, toonId int64, scopes [
 	slices.Sort(scopes)
 
 	// TODO: check if this toon already has the scope, and remove it or replace it.
-	var tx *sql.Tx
-	var err error
-	var res sql.Result
-	var rows *sql.Rows
-	params := sqlparams.New()
+	var (
+		tx     *sql.Tx
+		err    error
+		res    sql.Result
+		rows   *sql.Rows
+		params = sqlparams.New()
+	)
 	query := `
 SELECT scope
 FROM scope
@@ -274,7 +289,8 @@ VALUES (`+params.AddParams(toonId, token.RefreshToken)+`)
 
 	_, err = tx.Exec(`
 INSERT INTO scope (user_id, toon_id, token_id, scope)
-VALUES`+strings.Join(scopeValues, ","), params...)
+VALUES`+strings.Join(scopeValues, ",")+`
+ON DUPLICATE KEY UPDATE token_id=`+params.AddParam(tokenId), params...)
 	if err != nil {
 		logger.Error("error inserting scopes", zap.Error(err))
 		return err
@@ -284,6 +300,8 @@ VALUES`+strings.Join(scopeValues, ","), params...)
 		logger.Error("error committing transaction", zap.Error(err))
 		return err
 	}
+
+	// TODO: revoke old refresh token
 
 	sessionScopes, found := session.Values[sessionLoginScopes{}]
 	if !found {

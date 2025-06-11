@@ -39,10 +39,10 @@ type Blueprint struct {
 type LocationType string
 
 const (
-	LocationType_Station     = "station"
-	LocationType_SolarSystem = "solar_system"
-	LocationType_Item        = "item"
-	LocationType_Other       = "other"
+	LocationType_Station     = "station"      // NPC Stations
+	LocationType_SolarSystem = "solar_system" // Items out in space
+	LocationType_Item        = "item"         // Items in items
+	LocationType_Other       = "other"        // ??
 )
 
 type LocationFlag string
