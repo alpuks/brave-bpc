@@ -42,6 +42,9 @@ Running the frontend container provides a hotloading webserver at `localhost:300
 docker compose up -d frontend
 ```
 
+### Known Bugs
+- Issue when adding more scopes to an existing character/token
+
 ### TODO
 - [ ] Backend
   - [x] Oauth for ESI

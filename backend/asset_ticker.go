@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"maps"
 	"math/rand/v2"
 	"net/http"
 	"slices"
@@ -43,13 +42,14 @@ func (app *app) ticker(done <-chan struct{}) {
 		nextCtxRefresh time.Time
 	)
 
-	bpos, bpcs, err := app.updateBlueprintInventory(ctx, logger)
+	invState, err := app.updateBlueprintInventory(ctx, logger, false)
 	if err != nil {
-		logger.Error("error updating blueprint inventory", zap.Error(err))
-	} else {
-		app.bpos.Overwrite(bpos)
-		app.bpcs.Overwrite(bpcs)
+		logger.Error(err.Error())
 	}
+
+	app.invStateLock.Lock()
+	app.inventoryState = invState
+	app.invStateLock.Unlock()
 
 	ticker := time.NewTicker(60 * time.Minute)
 
@@ -74,141 +74,136 @@ func (app *app) ticker(done <-chan struct{}) {
 				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
 			}
 
-			bpos, bpcs, err = app.updateBlueprintInventory(ctx, logger)
+			invState, err := app.updateBlueprintInventory(ctx, logger, false)
 			if err != nil {
-				if errors.Is(err, errErrorsExceeded) {
-					time.Sleep(5 * time.Minute)
-					ticker.Reset(60 * time.Minute)
-				}
+				logger.Error(err.Error())
 			} else {
-				app.bpos.Overwrite(bpos)
-				app.bpcs.Overwrite(bpcs)
+				app.invStateLock.Lock()
+				app.inventoryState = invState
+				app.invStateLock.Unlock()
 			}
 		}
 	}
 }
 
-func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger) (
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	error,
-) {
-	var (
-		blueprints   esi.GetCorporationsCorporationIdBlueprints200OkList
-		assets       esi.GetCorporationsCorporationIdAssets200OkList
-		start        = time.Now()
-		wg           sync.WaitGroup
-		assetErr     error
-		blueprintErr error
-		hangars      []string
-	)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		hangars = app.fetchCorpHangarNames(ctx, logger)
-		_ = hangars
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		assets, assetErr = app.fetchAssets(ctx, logger)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		blueprints, blueprintErr = app.fetchBlueprints(ctx, logger)
-	}()
-
-	wg.Wait()
-
-	if assetErr != nil {
-		logger.Error("error fetching assets", zap.NamedError("asset_error", assetErr), zap.NamedError("blueprint_error", blueprintErr))
-		err := assetErr
-		if err == nil {
-			err = blueprintErr
-		}
-		return nil, nil, err
-	}
-
-	var (
-		assetMap        = make(map[int64]*esi.GetCorporationsCorporationIdAssets200Ok, len(assets))
-		newContainerIds = make(map[int64]struct{})
-		structureNames  map[int64]esi.GetUniverseStructuresStructureIdOk
-		containerNames  map[int64]string
-		typeNameMap     map[int32]string
-		newTypeIds      []int32
-		newStructureIds []int64
-	)
-
-	for _, bp := range assets {
-		assetMap[bp.ItemId] = &bp
-	}
-
-	for _, bp := range blueprints {
-		if _, ok := app.typeNameCache.Get(bp.TypeId); !ok {
-			newTypeIds = append(newTypeIds, bp.TypeId)
-		}
-	}
-
-	for _, asset := range assetMap {
-		parent, ok := assetMap[asset.LocationId]
-		// locationIds not in the assetMap are top-level locations, and therefore stations, structures, or undocked
-		if !ok && asset.LocationType == glue.LocationType_Item || asset.LocationType == glue.LocationType_Station {
-			if _, ok = structureNames[asset.ItemId]; !ok {
-				newStructureIds = append(newStructureIds, asset.LocationId)
-			}
-			continue
-		}
-		if parent.LocationFlag != string(glue.LocationFlag_AssetSafety) && parent.LocationFlag != string(glue.LocationFlag_OfficeFolder) {
-			if _, ok = structureNames[asset.LocationId]; !ok {
-				newContainerIds[asset.LocationId] = struct{}{}
-			}
-		}
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		typeNameMap = app.fetchTypeNames(ctx, logger, newTypeIds)
-		for k, v := range typeNameMap {
-			app.typeNameCache.Set(k, v)
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		structureNames = app.fetchStructures(ctx, logger, newStructureIds)
-		_ = structureNames
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		containerNames = app.fetchItemNames(ctx, logger, slices.Collect(maps.Keys(newContainerIds)))
-		_ = containerNames
-	}()
-
-	bpos, bpcs := coalesceBlueprints(blueprints)
-	buildItemLocationMap(blueprints)
-	app.buildAssetTree(assets)
-
-	wg.Wait()
-
-	logger.Debug("successfully fetched blueprints", zap.Duration("duration", time.Since(start)))
-	fetchBlueprintDuration.Observe(time.Since(start).Seconds())
-	return bpos, bpcs, nil
+type inventoryState struct {
+	blueprints     []esi.GetCorporationsCorporationIdBlueprints200Ok
+	assets         []esi.GetCorporationsCorporationIdAssets200Ok
+	bpcs           map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok
+	bpos           map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok
+	containerNames map[int64]string
+	hangarNames    []string
+	typeNames      map[int32]string
+	tree           map[int64]CorpAsset
 }
 
-func (app *app) fetchAssets(ctx context.Context, logger *zap.Logger) ([]esi.GetCorporationsCorporationIdAssets200Ok, error) {
+func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger, incremental bool) (*inventoryState, error) {
 	var (
+		start              = time.Now()
+		unknownLocationIds []int64
+		unknownTypeIds     []int32
+		err                error
+		inv                = &inventoryState{
+			bpos: make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok),
+			bpcs: make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok),
+		}
+	)
+
+	if inv.blueprints, err = app.fetchCorpBlueprints(ctx, logger); err != nil {
+		return nil, err
+	}
+
+	app.invStateLock.RLock()
+	defer app.invStateLock.RUnlock()
+
+	// populate bpo/bpc with a total count of each type/quality
+	for _, bp := range inv.blueprints {
+		var (
+			m   map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok
+			qty int32 = 1
+		)
+
+		if _, ok := app.inventoryState.typeNames[bp.TypeId]; !ok || !incremental {
+			unknownTypeIds = append(unknownTypeIds, bp.TypeId)
+		}
+
+		if _, ok := app.inventoryState.tree[bp.LocationId]; !ok {
+			unknownLocationIds = append(unknownLocationIds, bp.LocationId)
+		}
+
+		switch bp.Quantity {
+		case -2: // BPC
+			m = inv.bpcs
+		case -1: // researched BPO
+			m = inv.bpos
+		default: // BPO stack > 0
+			m = inv.bpos
+			qty = bp.Quantity
+		}
+
+		idx := -1
+		if _, ok := m[bp.TypeId]; !ok {
+			m[bp.TypeId] = esi.GetCorporationsCorporationIdBlueprints200OkList{}
+		} else {
+			idx = slices.IndexFunc(m[bp.TypeId], func(e esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
+				return sameBlueprintQuality(e, bp)
+			})
+		}
+
+		if idx == -1 { // equivalent blueprint not found
+			b := bp
+			b.Quantity = qty
+			m[bp.TypeId] = append(m[bp.TypeId], b)
+		} else {
+			m[bp.TypeId][idx].Quantity += qty
+		}
+	}
+
+	wg := sync.WaitGroup{}
+	if len(unknownLocationIds) > 0 || !incremental {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inv.hangarNames = app.fetchCorpHangarNames(ctx, logger)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inv.containerNames = app.fetchCorpItemNames(ctx, logger, unknownLocationIds)
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inv.assets, _ = app.fetchCorpAssets(ctx, logger)
+		}()
+	}
+
+	if len(unknownTypeIds) > 0 || !incremental {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			inv.typeNames = app.fetchTypeNames(ctx, logger, unknownTypeIds)
+		}()
+	}
+
+	wg.Wait()
+
+	inv.tree = app.buildAssetTree(inv.assets)
+
+	logger.Debug("updated blueprint inventory 2", zap.Duration("duration", time.Since(start)))
+	return inv, nil
+}
+
+func (app *app) fetchCorpAssets(ctx context.Context, logger *zap.Logger) ([]esi.GetCorporationsCorporationIdAssets200Ok, error) {
+	var (
+		start         = time.Now()
 		pages   int64 = 1
 		attempt int   = 1
 		assets  []esi.GetCorporationsCorporationIdAssets200Ok
 	)
+
 	for page := int32(1); page <= int32(pages); page++ {
 		reqCtx, cancel := context.WithTimeout(ctx, esiRequestTimeout)
 		defer cancel()
@@ -227,7 +222,7 @@ func (app *app) fetchAssets(ctx context.Context, logger *zap.Logger) ([]esi.GetC
 			attempt++
 			time.Sleep(time.Duration(rand.IntN(1000)) * time.Millisecond)
 			continue
-		} else if resp.StatusCode < http.StatusOK {
+		} else if resp.StatusCode != http.StatusOK {
 			// some other error happened. print to logs
 			var buf []byte
 			resp.Body.Read(buf)
@@ -238,23 +233,28 @@ func (app *app) fetchAssets(ctx context.Context, logger *zap.Logger) ([]esi.GetC
 			page--
 			attempt++
 			time.Sleep(time.Duration(rand.IntN(1000)) * time.Millisecond)
+			resp.Body.Close()
 			continue
 		}
-		defer resp.Body.Close()
 
 		assets = append(assets, ap...)
 		pages, _ = strconv.ParseInt(resp.Header.Get(headerPages), 10, 64)
+		attempt = 1
+		resp.Body.Close()
 	}
 
+	logger.Info("fetched assets", zap.Int64("pages", pages), zap.Int("assets", len(assets)), zap.Duration("duration", time.Since(start)))
 	return assets, nil
 }
 
-func (app *app) fetchBlueprints(ctx context.Context, logger *zap.Logger) ([]esi.GetCorporationsCorporationIdBlueprints200Ok, error) {
+func (app *app) fetchCorpBlueprints(ctx context.Context, logger *zap.Logger) ([]esi.GetCorporationsCorporationIdBlueprints200Ok, error) {
 	var (
+		start            = time.Now()
 		pages      int64 = 1
 		attempt          = 1
 		blueprints []esi.GetCorporationsCorporationIdBlueprints200Ok
 	)
+
 	for page := int32(1); page <= int32(pages); page++ {
 		reqCtx, cancel := context.WithTimeout(ctx, esiRequestTimeout)
 		defer cancel()
@@ -270,11 +270,12 @@ func (app *app) fetchBlueprints(ctx context.Context, logger *zap.Logger) ([]esi.
 			if attempt > 5 {
 				return nil, errors.New("retries exceeded")
 			}
+
 			page--
 			attempt++
 			time.Sleep(time.Duration(rand.IntN(1000)) * time.Millisecond)
 			continue
-		} else if resp.StatusCode < http.StatusOK {
+		} else if resp.StatusCode != http.StatusOK {
 			// some other error happened. print to logs
 			var buf []byte
 			resp.Body.Read(buf)
@@ -282,27 +283,32 @@ func (app *app) fetchBlueprints(ctx context.Context, logger *zap.Logger) ([]esi.
 			if attempt > 5 {
 				return nil, errors.New("retries exceeded")
 			}
+
 			page--
 			attempt++
 			time.Sleep(time.Duration(rand.IntN(1000)) * time.Millisecond)
+			resp.Body.Close()
 			continue
 		}
-		defer resp.Body.Close()
 
 		blueprints = append(blueprints, bp...)
 		pages, _ = strconv.ParseInt(resp.Header.Get(headerPages), 10, 64)
+		resp.Body.Close()
+		attempt = 1
 	}
 
+	logger.Info("finished fetching blueprints", zap.Int64("pages", pages), zap.Duration("duration", time.Since(start)))
 	return blueprints, nil
 }
 
 func (app *app) fetchTypeNames(ctx context.Context, logger *zap.Logger, typeIds []int32) map[int32]string {
+	slices.Sort(typeIds)
+	typeIds = slices.Compact(typeIds)
+
 	names := make(map[int32]string, len(typeIds))
 	if len(typeIds) == 0 {
 		return names
 	}
-	slices.Sort(typeIds)
-	typeIds = slices.Compact(typeIds)
 
 	chunks := slices.Chunk(typeIds, 1000)
 	for chunk := range chunks {
@@ -317,28 +323,30 @@ func (app *app) fetchTypeNames(ctx context.Context, logger *zap.Logger, typeIds 
 		} else if resp.StatusCode != http.StatusOK {
 			body, err := io.ReadAll(resp.Body)
 			logger.Error("error fetching type names", zap.String("status", resp.Status), zap.Error(err), zap.String("body", string(body)))
+			resp.Body.Close()
 			continue
 		}
-		defer resp.Body.Close()
 
 		for _, v := range namePage {
 			if v.Category == string(glue.NameCategory_InventoryType) {
 				names[v.Id] = v.Name
 			}
 		}
+
+		resp.Body.Close()
 	}
 
 	return names
 }
 
 func (app *app) fetchStructures(ctx context.Context, logger *zap.Logger, structureIds []int64) map[int64]esi.GetUniverseStructuresStructureIdOk {
-	structures := make(map[int64]esi.GetUniverseStructuresStructureIdOk)
+	slices.Sort(structureIds)
+	structureIds = slices.Compact(structureIds)
+
+	structures := make(map[int64]esi.GetUniverseStructuresStructureIdOk, len(structureIds))
 	if len(structureIds) == 0 {
 		return structures
 	}
-
-	slices.Sort(structureIds)
-	structureIds = slices.Compact(structureIds)
 
 	attempt := 1
 	for i, structureId := range structureIds {
@@ -376,7 +384,6 @@ func (app *app) fetchStructures(ctx context.Context, logger *zap.Logger, structu
 			continue
 		} else if resp.StatusCode != http.StatusOK {
 			body, err := io.ReadAll(resp.Body)
-			defer resp.Body.Close()
 			logger.Error("error fetching structure data", zap.Int64("structre_id", structureId), zap.String("status", resp.Status), zap.Error(err), zap.String("body", string(body)))
 			if attempt > 5 {
 				return nil
@@ -384,9 +391,9 @@ func (app *app) fetchStructures(ctx context.Context, logger *zap.Logger, structu
 			i--
 			attempt++
 			time.Sleep(time.Duration(rand.IntN(1000)) * time.Millisecond)
+			resp.Body.Close()
 			continue
 		}
-		defer resp.Body.Close()
 
 		if structureType == glue.LocationType_Station {
 			structureData = esi.GetUniverseStructuresStructureIdOk{
@@ -399,19 +406,21 @@ func (app *app) fetchStructures(ctx context.Context, logger *zap.Logger, structu
 		}
 
 		structures[structureId] = structureData
+		attempt = 1
+		resp.Body.Close()
 	}
 
 	return structures
 }
 
-func (app *app) fetchItemNames(ctx context.Context, logger *zap.Logger, itemIds []int64) map[int64]string {
+func (app *app) fetchCorpItemNames(ctx context.Context, logger *zap.Logger, itemIds []int64) map[int64]string {
+	slices.Sort(itemIds)
+	itemIds = slices.Compact(itemIds)
+
 	names := make(map[int64]string, len(itemIds))
 	if len(itemIds) == 0 {
 		return names
 	}
-
-	slices.Sort(itemIds)
-	itemIds = slices.Compact(itemIds)
 
 	chunks := slices.Chunk(itemIds, 1000)
 	for chunk := range chunks {
@@ -442,21 +451,23 @@ func (app *app) fetchCorpHangarNames(ctx context.Context, logger *zap.Logger) []
 	reqCtx, cancel := context.WithTimeout(ctx, esiRequestTimeout)
 	defer cancel()
 
+	out := []string{"Division 1", "Division 2", "Division 3", "Division 4", "Division 5", "Division 6", "Division 7"}
+
 	divisions, resp, err := app.esi.ESI.CorporationApi.GetCorporationsCorporationIdDivisions(reqCtx, app.config.AdminCorp, nil)
 	if err != nil {
 		body := parseEsiError(err)
 		logger.Error("error fetching corp divisions", zap.String("body", body), zap.Error(err))
-		return nil
+		return out
 	} else if resp.StatusCode != http.StatusOK {
 		// some other error happened. print to logs
+		defer resp.Body.Close()
 		var buf []byte
 		resp.Body.Read(buf)
 		logger.Warn("status not 200", zap.String("status_code", resp.Status), zap.String("body", string(buf)))
-		return nil
+		return out
 	}
 	defer resp.Body.Close()
 
-	out := make([]string, 7)
 	for _, v := range divisions.Hangar {
 		out[int(v.Division)-1] = v.Name
 	}
@@ -465,17 +476,20 @@ func (app *app) fetchCorpHangarNames(ctx context.Context, logger *zap.Logger) []
 }
 
 func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) (
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
-	map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList,
+	map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok,
+	map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok,
 ) {
-	bpos := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
-	bpcs := make(map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList)
+	var (
+		bpos = make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok)
+		bpcs = make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok)
+	)
 
 	for _, bp := range blueprints {
 		var (
-			m   map[int32]esi.GetCorporationsCorporationIdBlueprints200OkList
+			m   map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok
 			qty int32 = 1
 		)
+
 		switch bp.Quantity {
 		case -2: // BPC
 			m = bpcs
@@ -488,7 +502,7 @@ func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200
 
 		idx := -1
 		if _, ok := m[bp.TypeId]; !ok {
-			m[bp.TypeId] = esi.GetCorporationsCorporationIdBlueprints200OkList{}
+			m[bp.TypeId] = []esi.GetCorporationsCorporationIdBlueprints200Ok{}
 		} else {
 			idx = slices.IndexFunc(m[bp.TypeId], func(e esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
 				return sameBlueprintQuality(e, bp)
@@ -520,26 +534,27 @@ func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints2
 }
 
 type CorpAsset struct {
+	Name     string
 	Asset    *esi.GetCorporationsCorporationIdAssets200Ok
 	Children []*CorpAsset
 }
 
-func (app *app) buildAssetTree(assets []esi.GetCorporationsCorporationIdAssets200Ok) map[int64]*CorpAsset {
-	m := make(map[int64]*CorpAsset, len(assets))
+func (app *app) buildAssetTree(assets []esi.GetCorporationsCorporationIdAssets200Ok) map[int64]CorpAsset {
+	m := make(map[int64]CorpAsset, len(assets))
 	for _, asset := range assets {
-		_, ok := m[asset.ItemId]
+		child, ok := m[asset.ItemId]
 		if !ok {
-			m[asset.ItemId] = &CorpAsset{Asset: &asset}
+			child = CorpAsset{Asset: &asset}
+			m[asset.ItemId] = child
 		}
 
-		_, ok = m[asset.LocationId]
-		if !ok {
-			m[asset.LocationId] = &CorpAsset{
-				Children: []*CorpAsset{m[asset.ItemId]},
-			}
-		} else {
-
+		parent, ok := m[asset.LocationId]
+		if ok {
+			parent = CorpAsset{}
 		}
+
+		parent.Children = append(parent.Children, &child)
+		m[asset.LocationId] = parent
 	}
 
 	return m

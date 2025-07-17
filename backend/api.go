@@ -44,6 +44,19 @@ func (app *app) createApiHandlers(mux *http.ServeMux, mw *mwChain) {
 	mux.Handle("POST /api/config", workerChain.HandleFunc(app.postConfig))
 }
 
+type GetBlueprintsBlueprint struct {
+	MaterialEfficiency int32 `json:"material_efficiency,omitempty"`
+	Quantity           int32 `json:"quantity,omitempty"`
+	Runs               int32 `json:"runs,omitempty"`
+	TimeEfficiency     int32 `json:"time_efficiency,omitempty"`
+	TypeId             int32 `json:"type_id,omitempty"`
+}
+
+type GetBlueprintsType struct {
+	TypeName   string                   `json:"type_name,omitempty"`
+	Blueprints []GetBlueprintsBlueprint `json:"blueprints,omitempty"`
+}
+
 // change the token which is being used to refresh assets and names. eg. if roles or admin character changes
 func (app *app) refreshAdminToken(w http.ResponseWriter, r *http.Request) {
 	getLoggerFromContext(r.Context()).Debug("refreshAdminToken")
@@ -92,7 +105,30 @@ func apiInvalid(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) getBlueprints(w http.ResponseWriter, r *http.Request) {
-	httpWrite(w, app.bpcs.Data())
+	app.invStateLock.RLock()
+	defer app.invStateLock.RUnlock()
+
+	resp := make([]GetBlueprintsType, len(app.inventoryState.bpcs))
+
+	var i int
+	for typeId, bpcs := range app.inventoryState.bpcs {
+		resp[i].TypeName = app.inventoryState.typeNames[typeId]
+		resp[i].Blueprints = make([]GetBlueprintsBlueprint, len(bpcs))
+
+		for j, bpc := range bpcs {
+			resp[i].Blueprints[j] = GetBlueprintsBlueprint{
+				MaterialEfficiency: bpc.MaterialEfficiency,
+				Quantity:           bpc.Quantity,
+				Runs:               bpc.Runs,
+				TimeEfficiency:     bpc.TimeEfficiency,
+				TypeId:             bpc.TypeId,
+			}
+		}
+
+		i++
+	}
+
+	httpWrite(w, resp)
 }
 
 func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {

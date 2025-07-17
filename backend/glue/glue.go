@@ -1,6 +1,10 @@
 package glue
 
-type Combined struct {
+import (
+	"github.com/antihax/goesi/esi"
+)
+
+type InventoryItem struct {
 	ItemId             int64  `json:"item_id,omitempty"`             /* Unique ID for this item. */
 	TypeId             int32  `json:"type_id,omitempty"`             /* type_id integer */
 	LocationId         int64  `json:"location_id,omitempty"`         /* References a station, a ship or an item_id if this blueprint is located within a container. */
@@ -14,36 +18,69 @@ type Combined struct {
 	IsSingleton        bool   `json:"is_singleton,omitempty"`        /* is_singleton boolean */
 }
 
-type Item struct {
-	IsBlueprintCopy bool   `json:"is_blueprint_copy,omitempty"` /* is_blueprint_copy boolean */
-	IsSingleton     bool   `json:"is_singleton,omitempty"`      /* is_singleton boolean */
-	ItemId          int64  `json:"item_id,omitempty"`           /* item_id integer */
-	LocationFlag    string `json:"location_flag,omitempty"`     /* location_flag string */
-	LocationId      int64  `json:"location_id,omitempty"`       /* location_id integer */
-	LocationType    string `json:"location_type,omitempty"`     /* location_type string */
-	Quantity        int32  `json:"quantity,omitempty"`          /* quantity integer */
-	TypeId          int32  `json:"type_id,omitempty"`           /* type_id integer */
-}
+func newInventoryItem(a *esi.GetCorporationsCorporationIdAssets200Ok, b *esi.GetCorporationsCorporationIdBlueprints200Ok) InventoryItem {
+	var out InventoryItem
+	if a != nil {
+		out.ItemId = a.ItemId
+		out.TypeId = a.TypeId
+		out.LocationId = a.LocationId
+		out.LocationFlag = a.LocationFlag
+		out.LocationType = a.LocationType
+		out.Quantity = a.Quantity
+		out.IsBlueprintCopy = a.IsBlueprintCopy
+		out.IsSingleton = a.IsSingleton
+	}
 
-type Blueprint struct {
-	ItemId             int64  `json:"item_id,omitempty"`             /* Unique ID for this item. */
-	LocationFlag       string `json:"location_flag,omitempty"`       /* Type of the location_id */
-	LocationId         int64  `json:"location_id,omitempty"`         /* References a station, a ship or an item_id if this blueprint is located within a container. */
-	MaterialEfficiency int32  `json:"material_efficiency,omitempty"` /* Material Efficiency Level of the blueprint. */
-	Quantity           int32  `json:"quantity,omitempty"`            /* A range of numbers with a minimum of -2 and no maximum value where -1 is an original and -2 is a copy. It can be a positive integer if it is a stack of blueprint originals fresh from the market (e.g. no activities performed on them yet). */
-	Runs               int32  `json:"runs,omitempty"`                /* Number of runs remaining if the blueprint is a copy, -1 if it is an original. */
-	TimeEfficiency     int32  `json:"time_efficiency,omitempty"`     /* Time Efficiency Level of the blueprint. */
-	TypeId             int32  `json:"type_id,omitempty"`             /* type_id integer */
+	if b != nil {
+		out.ItemId = b.ItemId
+		out.TypeId = b.TypeId
+		out.LocationId = b.LocationId
+		out.LocationFlag = b.LocationFlag
+		out.Quantity = b.Quantity
+		out.Runs = b.Runs
+		out.MaterialEfficiency = b.MaterialEfficiency
+		out.TimeEfficiency = b.TimeEfficiency
+		out.IsBlueprintCopy = b.Quantity != -2
+	}
+
+	return out
 }
 
 type LocationType string
 
 const (
-	LocationType_Station     = "station"      // NPC Stations
-	LocationType_SolarSystem = "solar_system" // Items out in space
-	LocationType_Item        = "item"         // Items in items
-	LocationType_Other       = "other"        // ??
+	LocationType_Unknown     = "unknown"
+	LocationType_Station     = "station"
+	LocationType_SolarSystem = "solar_system"
+	LocationType_Item        = "item"
+	LocationType_Other       = "other"
 )
+
+/*
+type LocationType int8
+const (
+	LocationType_Unknown     LocationType = 0
+	LocationType_Station     LocationType = 1 // NPC Stations
+	LocationType_SolarSystem LocationType = 2 // Items out in space
+	LocationType_Item        LocationType = 3 // Items in items
+	LocationType_Other       LocationType = 4 // ??
+)
+
+var LocationType_names = map[LocationType]string{
+	LocationType_Unknown:     "unknown",
+	LocationType_Station:     "station",
+	LocationType_SolarSystem: "solar_system",
+	LocationType_Item:        "item",
+	LocationType_Other:       "other",
+}
+var LocationFlag_ids = map[string]LocationType{
+	"unknown":      LocationType_Unknown,
+	"station":      LocationType_Station,
+	"solar_system": LocationType_Station,
+	"item":         LocationType_Item,
+	"other":        LocationType_Other,
+}
+*/
 
 type LocationFlag string
 

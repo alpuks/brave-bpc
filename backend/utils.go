@@ -223,8 +223,7 @@ func sameBlueprintQuality(a esi.GetCorporationsCorporationIdBlueprints200Ok, b e
 
 func parseEsiError(err error) string {
 	s := map[string]string{}
-	e, ok := err.(esi.GenericSwaggerError)
-	if ok {
+	if e, ok := err.(esi.GenericSwaggerError); ok {
 		json.Unmarshal(e.Body(), &s)
 	}
 	return s["error"]

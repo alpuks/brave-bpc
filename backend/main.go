@@ -9,13 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
-	"github.com/antihax/goesi/esi"
 	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -56,17 +55,15 @@ type runtimeConfig struct {
 }
 
 type app struct {
-	config        *appConfig
-	runtimeConfig *runtimeConfig
-	logger        *zap.Logger
-	dao           *dao
-	sessionStore  sessions.Store
-	esi           *goesi.APIClient
-	bpos          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
-	bpcs          *syncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList]
-	typeNameCache *syncMap[int32, string]
-	//groupMap         map[int32]esi.GetMarketsGroupsMarketGroupIdOk
-	//groupTree        map[int32][]int32
+	config         *appConfig
+	runtimeConfig  *runtimeConfig
+	logger         *zap.Logger
+	dao            *dao
+	sessionStore   sessions.Store
+	esi            *goesi.APIClient
+	invStateLock   sync.RWMutex
+	inventoryState *inventoryState
+
 	requisitionLocks *syncMap[int64, int32]
 	flake            *snowflake.Node
 	jwks             *EsiJwks
@@ -92,9 +89,8 @@ func main() {
 		sessionStore:     newSessionStore(),
 		esi:              goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
 		flake:            newSnowflake(logger),
-		bpos:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
-		bpcs:             newSyncMap[int32, esi.GetCorporationsCorporationIdBlueprints200OkList](),
-		typeNameCache:    newSyncMap[int32, string](),
+		invStateLock:     sync.RWMutex{},
+		inventoryState:   &inventoryState{},
 		requisitionLocks: newSyncMap[int64, int32](),
 		runtimeConfig:    runtimeConfig,
 		adminTokenChan:   make(chan struct{}, 1),
@@ -179,40 +175,6 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context())
 	logger.Debug("root")
 	user := app.getUserFromSession(r)
-	var bp strings.Builder
-	keys := app.bpcs.Keys()
-
-	if user.IsLoggedIn() && len(keys) > 0 {
-		names, resp, err := app.esi.ESI.UniverseApi.PostUniverseNames(context.Background(), keys, nil)
-		if err != nil {
-			logger.Error("error fetching type names", zap.Error(err), zap.Int32s("type_ids", keys))
-			http.Error(w, "error fetching type names", http.StatusInternalServerError)
-			return
-		}
-		if resp.StatusCode != http.StatusOK {
-			logger.Error("error fetching type names", zap.String("status", resp.Status))
-			http.Error(w, "error fetching type names status no ok", http.StatusInternalServerError)
-			return
-		}
-
-		nameMap := func() map[int32]string {
-			nm := make(map[int32]string, len(names))
-			for _, v := range names {
-				if v.Category == string(glue.NameCategory_InventoryType) {
-					nm[v.Id] = v.Name
-				}
-			}
-			return nm
-		}()
-
-		app.bpcs.RangeFunc(func(typeId int32, list esi.GetCorporationsCorporationIdBlueprints200OkList) {
-			bp.WriteString("<details><summary>" + nameMap[typeId] + "</summary><p>")
-			for _, v := range list {
-				bp.WriteString(fmt.Sprintf("<div>ME: %d / TE: %d / Runs: %d / Quantity: %d</div>", v.MaterialEfficiency, v.TimeEfficiency, v.Runs, v.Quantity))
-			}
-			bp.WriteString("</p></details>")
-		})
-	}
 
 	body := `
 <html>
@@ -224,8 +186,8 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 <li><a href="/login/scope">add scopes</a>
 <li><a href="/config">config</a>
 <li><a href="/metrics">metrics</a>
+<li><a href="/api/blueprints">list blueprints</a>
 </ul>
-` + bp.String() + `
 </body>
 </html>
 `
