@@ -128,7 +128,13 @@ func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger
 		}
 
 		if _, ok := app.inventoryState.tree[bp.LocationId]; !ok {
-			unknownLocationIds = append(unknownLocationIds, bp.LocationId)
+			switch glue.LocationFlag(bp.LocationFlag) {
+			default:
+				unknownLocationIds = append(unknownLocationIds, bp.LocationId)
+			case
+				// noop for these location flags as they will error when calling the universe/names endpoint
+				glue.LocationFlag_AssetSafety:
+			}
 		}
 
 		switch bp.Quantity {
@@ -192,7 +198,7 @@ func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger
 
 	inv.tree = app.buildAssetTree(inv.assets)
 
-	logger.Debug("updated blueprint inventory 2", zap.Duration("duration", time.Since(start)))
+	logger.Debug("updated blueprint inventory", zap.Duration("duration", time.Since(start)))
 	return inv, nil
 }
 
