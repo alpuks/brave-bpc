@@ -15,6 +15,7 @@ import (
 
 	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
+	"github.com/antihax/goesi/esi"
 	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/sessions"
@@ -85,12 +86,18 @@ func main() {
 	}
 
 	app := &app{
-		logger:           logger,
-		sessionStore:     newSessionStore(),
-		esi:              goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
-		flake:            newSnowflake(logger),
-		invStateLock:     sync.RWMutex{},
-		inventoryState:   &inventoryState{},
+		logger:       logger,
+		sessionStore: newSessionStore(),
+		esi:          goesi.NewAPIClient(&http.Client{Timeout: 10 * time.Second}, esiUserAgent),
+		flake:        newSnowflake(logger),
+		invStateLock: sync.RWMutex{},
+		inventoryState: &inventoryState{
+			bpcs:           map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok{},
+			bpos:           map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok{},
+			containerNames: map[int64]string{},
+			typeNames:      map[int32]string{},
+			tree:           map[int64]CorpAsset{},
+		},
 		requisitionLocks: newSyncMap[int64, int32](),
 		runtimeConfig:    runtimeConfig,
 		adminTokenChan:   make(chan struct{}, 1),
