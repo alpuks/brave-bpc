@@ -11,19 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type requestedBlueprint struct {
-	TypeId             int32
-	Name               string
-	Runs               int16
-	MaterialEfficiency int8
-	TimeEfficiency     int8
-	Any                bool
-}
-
-type postRequisitionOrderRequest struct {
-	Blueprints []requestedBlueprint
-}
-
 func (app *app) createApiHandlers(mux *http.ServeMux, mw *mwChain) {
 	authChain := mw.Add(apiMiddleware, app.authMiddlewareFactory(authLevel_Authorized))
 	workerChain := mw.Add(apiMiddleware, app.authMiddlewareFactory(authLevel_Worker))
