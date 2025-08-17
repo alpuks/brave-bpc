@@ -256,20 +256,15 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 // Create a new requisition order
 // expects a postRequisitionOrderRequest in the body
 func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
+	var (
+		user   = app.getUserFromSession(r)
+		logger = getLoggerFromContext(r.Context()).Named("api")
+		buf    []byte
+		err    error
+	)
 	defer r.Body.Close()
-	s, _ := app.sessionStore.Get(r, cookieSession)
-	if s.IsNew {
-		httpError(w, "not logged in", http.StatusUnauthorized)
-		return
-	}
 
-	// TODO: check user is in a valid corp
-
-	user := app.getUserFromSession(r)
-	logger := getLoggerFromContext(r.Context()).Named("api")
-
-	var buf []byte
-	if _, err := r.Body.Read(buf); err != nil {
+	if buf, err = io.ReadAll(r.Body); err != nil {
 		logger.Error("error reading body", zap.Error(err))
 		httpError(w, "error reading request", http.StatusInternalServerError)
 		return
@@ -277,7 +272,7 @@ func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 
 	var bpReq postRequisitionOrderRequest
 	if err := json.Unmarshal(buf, &bpReq); err != nil {
-		logger.Error("error unmarshalling json")
+		logger.Error("error unmarshalling json", zap.Error(err))
 		httpError(w, "error reading request", http.StatusInternalServerError)
 		return
 	}
@@ -291,4 +286,6 @@ func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "error creating requisition", http.StatusInternalServerError)
 		return
 	}
+
+	logger.Debug("created requisition order")
 }
