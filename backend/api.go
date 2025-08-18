@@ -282,7 +282,7 @@ func (app *app) postRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := app.dao.createRequisition(user.CharacterId, user.CharacterName, buf); err != nil {
+	if err := app.dao.createRequisition(user.CharacterId, user.CharacterName, bpReq.Blueprints); err != nil {
 		httpError(w, "error creating requisition", http.StatusInternalServerError)
 		return
 	}

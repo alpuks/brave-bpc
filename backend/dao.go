@@ -333,14 +333,18 @@ func (d *dao) runMigrations(logger *zap.Logger, migrateDown bool) {
 	}
 }
 
-func (dao *dao) createRequisition(characterId int32, characterName string, blueprints []byte) error {
-	var err error
-	params := sqlparams.New()
+func (dao *dao) createRequisition(characterId int32, characterName string, blueprints []requestedBlueprint) error {
+	bytes, err := json.Marshal(blueprints)
+	if err != nil {
+		return fmt.Errorf("error marshalling json: %w", err)
+	}
+
 	_, err = dao.db.Exec(`
 INSERT INTO requisition_order
 (character_id, blueprints, updated_by)
-VALUES (`+params.AddParams(characterId, blueprints, characterName)+`)
-`, params...)
+VALUES (?,?,?)
+`, characterId, bytes, characterName)
+
 	return err
 }
 
