@@ -5,7 +5,6 @@ import {
   Link,
   Dropdown,
   DropdownTrigger,
-  Avatar,
   DropdownMenu,
   DropdownItem,
   Image,
@@ -74,9 +73,9 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
                     "https://images.evetech.net/characters/" +
                     user?.character_id +
                     "/portrait",
-                  isBordered:true,
-                  radius:"sm",
-                  color:"default"
+                  isBordered: true,
+                  radius: "sm",
+                  color: "default",
                 }}
                 name={user?.character_name}
                 className="text-white"
@@ -86,9 +85,10 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
               <DropdownItem
                 key="logout"
                 color="danger"
-                onClick={() =>
-                  router.navigate({ to: "/" }) && authContext.logout()
-                }
+                onClick={() => {
+                  authContext.logout();
+                  router.navigate({ to: "/" });
+                }}
               >
                 Log Out
               </DropdownItem>

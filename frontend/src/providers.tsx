@@ -7,7 +7,7 @@ import {
 import { useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { routeTree } from "./routeTree.gen";
-import { motion } from "framer-motion";
+
 const router = createRouter({
   routeTree,
   defaultPendingComponent: () => (
