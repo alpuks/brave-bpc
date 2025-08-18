@@ -332,7 +332,7 @@ function RouteComponent() {
         <div className="flex gap-4 flex-col border rounded-lg p-4">
           <h2 className="text-center font-bold">Selected Items</h2>
 
-          <Table className="flex-1 h-full">
+          <Table className="flex-1 h-full" aria-label="Selected items table">
             <TableHeader>
               <TableColumn>Name</TableColumn>
               <TableColumn>Quantity</TableColumn>
