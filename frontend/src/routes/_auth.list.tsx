@@ -1,6 +1,6 @@
 "use client";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { SetStateAction, useEffect, useMemo, useState } from "react";
 import {
   Table,
   TableHeader,
@@ -32,8 +32,8 @@ interface BlueprintApiResponse {
   type_name: string;
   blueprints: Blueprint[];
 }
-
-const MAX_TOTAL = 5;
+//TODO load from config
+const MAX_TOTAL = 10;
 
 function RouteComponent() {
   const [blueprints, setBlueprints] = useState(
@@ -41,7 +41,15 @@ function RouteComponent() {
   );
 
   useEffect(() => {
-    fetchBlueprints(setBlueprints);
+    try {
+      fetchBlueprints(setBlueprints);
+    } catch (e: unknown) {
+      addToast({
+        title: "Error",
+        description: "Failed to load blueprints: " + (e as Error).message,
+        color: "danger",
+      });
+    }
   }, []);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -82,7 +90,7 @@ function RouteComponent() {
       return newState;
     });
   };
-  const handleValueChange = (item: string, value: number) => {
+  const handleValueChange = (item: Blueprint, value: number) => {
     setSelected((prev) => {
       // clamp to row max
       // let clamped = Math.min(value, item.maxCount);
@@ -170,7 +178,9 @@ function RouteComponent() {
         <Input
           placeholder="Search items..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e: { target: { value: SetStateAction<string> } }) =>
+            setSearch(e.target.value)
+          }
           className="font-semibold w-64 p-2"
         />
 
@@ -255,7 +265,7 @@ function RouteComponent() {
                                       )
                                     }
                                     value={state?.value || 0}
-                                    onValueChange={(e) =>
+                                    onValueChange={(e: number) =>
                                       handleValueChange(item, e)
                                     }
                                   />
@@ -264,7 +274,7 @@ function RouteComponent() {
                               <TableCell>
                                 <Checkbox
                                   isSelected={state?.checked || false}
-                                  onValueChange={(checked) =>
+                                  onValueChange={(checked: boolean) =>
                                     handleCheck(item.key, checked)
                                   }
                                 />
@@ -304,7 +314,7 @@ function RouteComponent() {
                                 minValue={1}
                                 maxValue={item.quantity}
                                 value={state?.value || 0}
-                                onValueChange={(e) =>
+                                onValueChange={(e: number) =>
                                   handleValueChange(item, e)
                                 }
                               />
@@ -313,7 +323,7 @@ function RouteComponent() {
                           <TableCell>
                             <Checkbox
                               isSelected={state?.checked || false}
-                              onValueChange={(checked) =>
+                              onValueChange={(checked: boolean) =>
                                 handleCheck(item.key, checked)
                               }
                             />
@@ -397,6 +407,9 @@ async function fetchBlueprints(
     credentials: "include",
     mode: "cors",
   });
+  if (response.status !== 200) {
+    throw new Error("Failed to fetch blueprints: " + response.statusText);
+  }
   const data: Array<BlueprintApiResponse> = await response.json();
 
   const correctedData = data.map((item) => {
@@ -432,7 +445,6 @@ async function createRequisition(selectedItems: Blueprint[]) {
     body: JSON.stringify({ blueprints: requisitionItems }),
   });
   if (response.status !== 200) {
-    console.log(response);
     throw new Error("Failed to create requisition");
   }
   return;
