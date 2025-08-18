@@ -245,14 +245,17 @@ func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
-	reqId, err := strconv.ParseInt(r.PathValue("requsition_id"), 10, 64)
+	logger := getLoggerFromContext(r.Context()).Named("api")
+	logger.Debug("list requisition orders")
+
+	orders, err := app.dao.listRequisitionOrders(requisitionStatus_Open)
 	if err != nil {
-		httpError(w, "invalid requisition", http.StatusBadRequest)
+		logger.Error("error fetching requisition orders", zap.Error(err))
+		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)
 		return
 	}
-	logger := getLoggerFromContext(r.Context()).Named("api").With(zap.Int64("id", reqId))
-	// TODO: get req from db
-	logger.Debug("get requisition order")
+
+	httpWrite(w, orders)
 }
 
 // Create a new requisition order
