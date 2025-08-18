@@ -3,7 +3,7 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 interface User {
   character_name: string;
-  auth_level: string;
+  auth_level: number;
   character_id: string;
 }
 
