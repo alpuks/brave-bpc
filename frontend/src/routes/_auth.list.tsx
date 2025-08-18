@@ -363,7 +363,24 @@ function RouteComponent() {
           </Table>
           <Button
             className="object-bottom"
-            onPress={() => createRequisition(selectedItems)}
+            onPress={async () => {
+              try {
+                await createRequisition(selectedItems);
+                addToast({
+                  title: "Success",
+                  description: "Requisition created successfully!",
+                  color: "success",
+                });
+              } catch (e: unknown) {
+                addToast({
+                  title: "Error",
+                  description:
+                    "Failed to create requisition: " + (e as Error).message,
+                  color: "danger",
+                });
+              }
+              setSelected({});
+            }}
           >
             Submit
           </Button>
@@ -375,14 +392,11 @@ function RouteComponent() {
 async function fetchBlueprints(
   setBlueprints: React.Dispatch<React.SetStateAction<BlueprintApiResponse[]>>
 ) {
-  const response = await fetch(
-    `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
-    {
-      method: "GET",
-      credentials: "include",
-      mode: "cors",
-    }
-  );
+  const response = await fetch(`/api/blueprints`, {
+    method: "GET",
+    credentials: "include",
+    mode: "cors",
+  });
   const data: Array<BlueprintApiResponse> = await response.json();
 
   const correctedData = data.map((item) => {
@@ -398,7 +412,7 @@ async function fetchBlueprints(
   return;
 }
 
-async function createRequisition(selectedItems) {
+async function createRequisition(selectedItems: Blueprint[]) {
   // Required format for api
   const requisitionItems = selectedItems.map((item) => ({
     type_id: item.type_id,
@@ -408,20 +422,18 @@ async function createRequisition(selectedItems) {
     quantity: item.quantity,
   }));
 
-  const response = await fetch(
-    `${window.location.protocol}//${window.location.hostname}:2727/api/requisition`,
-    {
-      method: "POST",
-      credentials: "include",
-      mode: "no-cors",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ blueprints: requisitionItems }),
-    }
-  );
-  if (!response.ok) {
+  const response = await fetch(`/api/requisition`, {
+    method: "POST",
+    credentials: "include",
+    mode: "cors",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ blueprints: requisitionItems }),
+  });
+  if (response.status !== 200) {
+    console.log(response);
     throw new Error("Failed to create requisition");
   }
-  return response.json();
+  return;
 }
