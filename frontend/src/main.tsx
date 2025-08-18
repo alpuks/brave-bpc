@@ -1,6 +1,10 @@
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
-import { RouterProvider, createRouter,ErrorComponent } from "@tanstack/react-router";
+import {
+  RouterProvider,
+  createRouter,
+  ErrorComponent,
+} from "@tanstack/react-router";
 
 import { routeTree } from "./routeTree.gen";
 
@@ -29,8 +33,8 @@ declare module "@tanstack/react-router" {
 }
 
 function InnerApp() {
-  const auth = useAuth()
-  return <RouterProvider router={router} context={{ auth }} />
+  const auth = useAuth();
+  return <RouterProvider router={router} context={{ auth }} />;
 }
 
 function App() {
@@ -40,7 +44,7 @@ function App() {
         <InnerApp />
       </ThemeProvider>
     </AuthProvider>
-  )
+  );
 }
 
 const rootElement = document.getElementById("root")!;
