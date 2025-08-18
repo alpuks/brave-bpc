@@ -98,10 +98,10 @@ func dbConnectString() string {
 	name := getEnvWithDefault(envDbName, "local")
 
 	if host[0] == '/' {
-		return fmt.Sprintf("%s:%s@unix(%s)/%s", user, pass, host, name)
+		return fmt.Sprintf("%s:%s@unix(%s)/%s?parseTime=true", user, pass, host, name)
 	}
 
-	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", user, pass, host, port, name)
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true", user, pass, host, port, name)
 }
 
 //go:embed migrations/*.sql
