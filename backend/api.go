@@ -226,16 +226,18 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
-	reqId, err := strconv.ParseInt(r.PathValue("requsition_id"), 10, 64)
+	reqId, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		httpError(w, "invalid requisition", http.StatusBadRequest)
 		return
 	}
 	logger := getLoggerFromContext(r.Context()).Named("api").With(zap.Int64("id", reqId))
+	logger.Debug("get requisition order")
 
 	var req *requisitionOrder
 	if req, err = app.dao.getRequisition(reqId); err != nil {
 		logger.Error("error getting requisition", zap.Error(err))
+		httpError(w, "error getting requisition", http.StatusInternalServerError)
 		return
 	}
 
