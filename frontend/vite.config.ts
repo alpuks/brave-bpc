@@ -22,4 +22,10 @@ export default defineConfig({
       },
     },
   },
+  ssr: {
+    noExternal: ["framer-motion", "@heroui/react"],
+  },
+  optimizeDeps: {
+    include: ["framer-motion"],
+  },
 });
