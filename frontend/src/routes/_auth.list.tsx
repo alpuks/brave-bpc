@@ -1,3 +1,4 @@
+'use client'
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -11,93 +12,123 @@ import {
   Checkbox,
   Avatar,
   NumberInput,
+  Button,
+  addToast,
 } from "@heroui/react";
 
 export const Route = createFileRoute("/_auth/list")({
   component: RouteComponent,
-  component: RouteComponent,
 });
 
 export interface Blueprint {
-  name?: string;
-  item_id: number;
-  location_flag: string;
-  location_id: number;
   quantity: number;
   runs: number;
   type_id: number;
   material_efficiency?: number;
   time_efficiency?: number;
+  key: string;
 }
-function RouteComponent() {
-  const [blueprints, setBlueprints] = useState(new Map<string, Blueprint[]>());
-  const [nameMap, setNameMap] = useState(new Map<string, string>());
+interface BlueprintApiResponse {
+  type_name: string;
+  blueprints: Blueprint[];
+}
 
-  type ArrayItem = {
-    item_id: number;
-    quantity: number;
-    runs: number;
-    type_id: number;
-    material_efficiency?: number;
-    time_efficiency?: number;
-  };
+const MAX_TOTAL = 5;
+
+function RouteComponent() {
+  const [blueprints, setBlueprints] = useState(
+    new Array<BlueprintApiResponse>()
+  );
 
   useEffect(() => {
-    const fetchNameMap = async () => {
-      const response = await fetch(
-        `${window.location.protocol}//${window.location.hostname}:2727/api/namemap`,
-        {
-          method: "GET",
-          credentials: "include",
-          mode: "cors",
-        }
-      );
-      const data = await response.json();
-
-      const map = new Map<string, string>(Object.entries(data));
-      setNameMap(map);
-      return;
-    };
-
-    const fetchBlueprints = async () => {
-      const response = await fetch(
-        `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
-        {
-          method: "GET",
-          credentials: "include",
-          mode: "cors",
-        }
-      );
-      const data = await response.json();
-
-      const map = new Map<string, Blueprint[]>(Object.entries(data));
-      setBlueprints(map);
-      return;
-    };
-
-    fetchNameMap()
-      .then(() => fetchBlueprints().catch((err) => console.error(err)))
-      .catch((err) => console.error(err));
+    fetchBlueprints(setBlueprints);
   }, []);
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<keyof Blueprint>("name");
+  const [sortKey, setSortKey] = useState<keyof Blueprint | "name">("name");
   const [sortAsc, setSortAsc] = useState(true);
-  const [selectedItems, setSelectedItems] = useState<Map<number, number>>(
-    new Map()
-  );
+
+
+  const [selected, setSelected] = useState<
+    Record<string, { checked: boolean; value: number }>
+  >({});
+
+  const getTotal = (state = selected) =>
+    Object.values(state)
+      .filter((v) => v.checked)
+      .reduce((sum, v) => sum + v.value, 0);
+
+  const handleCheck = (key: string, checked: boolean) => {
+    setSelected((prev) => {
+      const current = prev[key]?.value ?? 1;
+      const newState = {
+        ...prev,
+        [key]: {
+          checked,
+          value: current,
+        },
+      };
+
+      // if unchecked, fine; if checked, enforce overall max
+      if (checked && getTotal(newState) > MAX_TOTAL) {
+        addToast({
+          title:"Selection limit exceeded",
+          description:"You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
+          color: "danger",
+        })
+        return prev; // reject change
+      }
+      return newState;
+    });
+  };
+  const handleValueChange = (item: string, value: number) => {
+    setSelected((prev) => {
+      // clamp to row max
+      // let clamped = Math.min(value, item.maxCount);
+      // if (clamped < 1) clamped = 1;
+
+      const newState = {
+        ...prev,
+        [item.key]: {
+          checked: true, // auto-check if typing
+          value: value,
+        },
+      };
+
+      // enforce global max
+      if (getTotal(newState) > MAX_TOTAL) {
+        addToast({
+          title:"Selection limit exceeded",
+          description:"You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
+          color: "danger",
+        })
+
+        return prev; // reject change
+      }
+     
+
+      return newState;
+    });
+  };
+const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprint)=>({...blueprint, type_name:group.type_name}))).filter(
+    (item) => selected[item.key]?.checked
+  )
+
 
   const toggleExpand = (groupId: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      next.has(groupId) ? next.delete(groupId) : next.add(groupId);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
       return next;
     });
   };
 
-  const handleSort = (key: keyof ArrayItem) => {
+  const handleSort = (key: keyof Blueprint | "name") => {
     if (key === sortKey) {
       setSortAsc(!sortAsc);
     } else {
@@ -105,63 +136,24 @@ function RouteComponent() {
       setSortAsc(true);
     }
   };
-  const getTotalSelectedQuantity = () => {
-    return Array.from(selectedItems.values()).reduce(
-      (sum, qty) => sum + qty,
-      0
-    );
-  };
 
-  const toggleItemSelection = (itemId: number, checked: boolean) => {
-    setSelectedItems((prev) => {
-      const next = new Map(prev);
-      if (checked) {
-        next.set(itemId, 1);
-      } else {
-        next.delete(itemId);
-      }
-      return next;
-    });
-  };
 
-  const updateItemValue = (itemId: number, value: number) => {
-    //TODO add check for max count
-    setSelectedItems((prev) => {
-      const next = new Map(prev);
-      if (next.has(itemId)) {
-        next.set(itemId, value);
-      }
-      return next;
-    });
-  };
+
   const filteredGroups = useMemo(() => {
-    const filteredItems = Array.from(blueprints.entries()).map(
-      ([groupId, items]) => {
-        const filteredItems = items.filter((item) => {
-          if (nameMap.has(`${item.type_id}`)) {
-            //@ts-expect-error check above
-            return nameMap
-              .get(`${item.type_id}`)
-              .toLowerCase()
-              .includes(search.toLowerCase());
-          } else {
-            return true;
-          }
-        });
-
-        return [groupId, filteredItems] as [string, ArrayItem[]];
-      }
+    if (!blueprints || blueprints.length === 0) return [];
+    const filteredItems = blueprints.filter((item) =>
+      item.type_name.toLowerCase().includes(search.toLowerCase())
     );
-
+    //TODO fix this sort, filtering and mayhem
     const sortedItems = [...filteredItems].sort((a, b) => {
-      let valA = a[0];
-      let valB = b[0];
+      let valA;
+      let valB;
       if (sortKey === "name") {
-        valA = nameMap.get(`${a[0]}`) || "";
-        valB = nameMap.get(`${b[0]}`) || "";
+        valA = a.type_name;
+        valB = b.type_name;
       } else {
-        valA = a[1][sortKey];
-        valB = b[1][sortKey];
+        valA = a.blueprints[0][sortKey];
+        valB = b.blueprints[0][sortKey];
       }
       if (valA == null) return 1;
       if (valB == null) return -1;
@@ -171,138 +163,269 @@ function RouteComponent() {
   }, [search, sortKey, sortAsc, blueprints]);
 
   return (
-    <div>
-      <Input
-        placeholder="Search items..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="font-semibold w-64 p-2"
-      />
-      <Table aria-label="Collapsible selectable table" isStriped >
-        <TableHeader>
-          <TableColumn
-            onClick={() => handleSort("name")}
-            className="cursor-pointer"
-          >
-            Name
-          </TableColumn>
-          <TableColumn>Group</TableColumn>
-          <TableColumn className="cursor-pointer">ME</TableColumn>
-          <TableColumn className="cursor-pointer">TE</TableColumn>
-          <TableColumn className="cursor-pointer">Runs</TableColumn>
-          <TableColumn className="cursor-pointer">Quantity</TableColumn>
-		  <TableColumn children={undefined}></TableColumn>
-          <TableColumn>Select</TableColumn>
-        </TableHeader>
-        <TableBody>
-          {filteredGroups.map(([groupId, items]) => {
-            const showExpandable = items.length > 1;
+    <div className="flex gap-4">
+      <div>
+        <Input
+          placeholder="Search items..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="font-semibold w-64 p-2"
+        />
 
-            return (
-              <>
-                {showExpandable ? (
-                  <>
-                    <TableRow
-                      key={groupId}
-                      onClick={() => toggleExpand(groupId)}
-                      className="cursor-pointer"
-                    >
-                      <TableCell className="flex items-center gap-2 font-semibold">
-                        <Avatar
-                          radius="none"
-                          src={`https://images.evetech.net/types/${items[0].type_id}/bpc`}
-                        />
-                        {nameMap.get(groupId)}
-                      </TableCell>
-                      <TableCell colSpan={4} className="text-sm text-gray-500">
-                        {expandedGroups.has(groupId)
-                          ? "Click to collapse"
-                          : "Click to expand"}
-                      </TableCell>
-                      <TableCell children={undefined} />
-                      <TableCell children={undefined} />
-					  <TableCell children={undefined} />
-                    </TableRow>
+        <Table
+          className="flex gap-4"
+          aria-label="Collapsible selectable table"
+          isStriped
+          isVirtualized
+        >
+          <TableHeader>
+            <TableColumn
+              onClick={() => handleSort("name")}
+              className="cursor-pointer"
+            >
+              Name
+            </TableColumn>
+            <TableColumn>Group</TableColumn>
+            <TableColumn className="cursor-pointer">ME</TableColumn>
+            <TableColumn className="cursor-pointer">TE</TableColumn>
+            <TableColumn className="cursor-pointer">Runs</TableColumn>
+            <TableColumn className="cursor-pointer">Quantity</TableColumn>
+            <TableColumn children={undefined}></TableColumn>
+            <TableColumn>Select</TableColumn>
+          </TableHeader>
+          <TableBody>
+            {filteredGroups.map(({ type_name, blueprints: items }) => {
+              const showExpandable = items.length > 1;
 
-                    {expandedGroups.has(groupId) &&
-                      items.map((item) => (
-                        <TableRow key={item.item_id}>
-                          <TableCell children={undefined} />
-                          <TableCell children={undefined}>{}</TableCell>
+              return (
+                <>
+                  {showExpandable ? (
+                    <>
+                      <TableRow
+                        key={items[0].type_id}
+                        onClick={() => toggleExpand(type_name)}
+                        className="cursor-pointer"
+                      >
+                        <TableCell className="flex items-center gap-2 font-semibold">
+                          <Avatar
+                            radius="none"
+                            src={`https://images.evetech.net/types/${items[0].type_id}/bpc`}
+                          />
+                          {type_name}
+                        </TableCell>
+                        <TableCell
+                          colSpan={4}
+                          className="text-sm text-gray-500"
+                        >
+                          {expandedGroups.has(type_name)
+                            ? "Click to collapse"
+                            : "Click to expand"}
+                        </TableCell>
+                        <TableCell children={undefined} />
+                        <TableCell children={undefined} />
+                        <TableCell children={undefined} />
+                      </TableRow>
+
+                      {expandedGroups.has(type_name) &&
+                        items.map((item) => {
+
+                          const state = selected[item.key];
+                          return (
+                            <TableRow key={item.key}>
+                              <TableCell children={undefined} />
+                              <TableCell children={undefined}>{}</TableCell>
+                              <TableCell>
+                                {item.material_efficiency || 0}
+                              </TableCell>
+                              <TableCell>{item.time_efficiency || 0}</TableCell>
+                              <TableCell>{item.runs}</TableCell>
+                              <TableCell>{item.quantity} </TableCell>
+                              <TableCell>
+                                {state?.checked && (
+                                  <NumberInput
+                                    size="sm"
+                                    className="w-20 mt-1"
+                                    minValue={1}
+                                    maxValue={item.quantity}
+                                    aria-labelledby={
+                                      type_name +
+                                      items.findIndex(
+                                        (findItem) => findItem == item
+                                      )
+                                    }
+                                    value={state?.value || 0}
+                                    onValueChange={(e) =>
+                                      handleValueChange(
+                                        item,
+                                        e
+                                      )
+                                    }
+                                  />
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Checkbox
+                                  isSelected={state?.checked || false}
+                                  onValueChange={(checked) =>
+                                    handleCheck(item.key, checked)
+                                  }
+                                />
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                    </>
+                  ) : (
+                    items.map((item) => {
+                      const state = selected[item.key];
+                      return (
+                        <TableRow key={item.key}>
+                          <TableCell className="flex items-center gap-2 font-semibold">
+                            <Avatar
+                              radius="none"
+                              src={`https://images.evetech.net/types/${item.type_id}/bpc`}
+                            />
+                            {type_name}
+                          </TableCell>
+                          <TableCell children={undefined}></TableCell>
                           <TableCell>{item.material_efficiency}</TableCell>
                           <TableCell>{item.time_efficiency}</TableCell>
                           <TableCell>{item.runs}</TableCell>
                           <TableCell>{item.quantity} </TableCell>
-						  <TableCell>{selectedItems.has(item.item_id) && (
+                          <TableCell>
+                            {state?.checked && (
                               <NumberInput
                                 size="sm"
+                                aria-labelledby={
+                                  type_name +
+                                  items.findIndex(
+                                    (findItem) => findItem == item
+                                  )
+                                }
                                 className="w-20 mt-1"
                                 minValue={1}
                                 maxValue={item.quantity}
-                                defaultValue={
-                                  selectedItems.get(item.item_id) || 1
-                                }
+                                value={state?.value || 0}
                                 onValueChange={(e) =>
-                                  updateItemValue(item.item_id, e)
+                                  handleValueChange(
+                                    item,
+                                    e
+                                  )
                                 }
                               />
-                            )}</TableCell>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Checkbox
-                              isSelected={selectedItems.has(item.item_id)}
+                              isSelected={state?.checked || false}
                               onValueChange={(checked) =>
-                                toggleItemSelection(item.item_id, checked)
+                                handleCheck(item.key, checked)
                               }
                             />
-                            
                           </TableCell>
                         </TableRow>
-                      ))}
-                  </>
-                ) : (
-                  items.map((item) => (
-                    <TableRow key={item.item_id}>
-                      <TableCell className="flex items-center gap-2 font-semibold">
-                        <Avatar
-                          radius="none"
-                          src={`https://images.evetech.net/types/${item.type_id}/bpc`}
-                        />
-                        {nameMap.get(groupId)}
-                      </TableCell>
-                      <TableCell children={undefined}></TableCell>
-                      <TableCell>{item.material_efficiency}</TableCell>
-                      <TableCell>{item.time_efficiency}</TableCell>
-                      <TableCell>{item.runs}</TableCell>
-                      <TableCell>{item.quantity} </TableCell>
-					  <TableCell>{selectedItems.has(item.item_id) && (
-                          <NumberInput
-                            size="sm"
-                            className="w-20 mt-1"
-                            minValue={1}
-                            maxValue={item.quantity}
-                            defaultValue={selectedItems.get(item.item_id) || 1}
-                            onValueChange={(e) =>
-                              updateItemValue(item.item_id, e)
-                            }
-                          />
-                        )}</TableCell>
-                      <TableCell>
-                        <Checkbox
-                          isSelected={selectedItems.has(item.item_id)}
-                          onValueChange={(checked) =>
-                            toggleItemSelection(item.item_id, checked)
-                          }
-                        />
-                        
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </>
-            );
-          })}
-        </TableBody>
-      </Table>
+                      );
+                    })
+                  )}
+                </>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+      {selected && (
+        <div className="flex gap-4 flex-col border rounded-lg p-4">
+          <h2 className="text-center font-bold">Selected Items</h2>
+           
+          <Table className="flex-1 h-full">
+            <TableHeader>
+              <TableColumn>Name</TableColumn>
+              <TableColumn>Quantity</TableColumn>
+              <TableColumn>Runs</TableColumn>
+              <TableColumn>ME</TableColumn>
+              <TableColumn>TE</TableColumn>
+            </TableHeader>
+            <TableBody>
+              {selectedItems.map(
+              
+             (item)=>{
+                const quantity = selected[item.key]?.value || 1;
+                return (
+                  <TableRow key={item.key + "selected"}>
+                    <TableCell>
+                      <Avatar
+                        radius="none"
+                        src={`https://images.evetech.net/types/${item?.type_id}/bpc`}
+                      />
+                      {item?.type_name || "Unknown Item"}
+                    </TableCell>
+                    <TableCell>{quantity}</TableCell>
+                    <TableCell>{item?.runs}</TableCell>
+                    <TableCell>{item?.material_efficiency}</TableCell>
+                    <TableCell>{item?.time_efficiency}</TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          <Button className="object-bottom" onPress={()=> createRequisition(selectedItems)}>Submit</Button>
+        </div>
+      )}
     </div>
   );
+}
+async function fetchBlueprints(setBlueprints:React.Dispatch<React.SetStateAction<BlueprintApiResponse[]>>) {
+  
+    const response = await fetch(
+      `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
+      {
+        method: "GET",
+        credentials: "include",
+        mode: "cors",
+      }
+    );
+    const data: Array<BlueprintApiResponse> = await response.json();
+
+    const correctedData = data.map((item) => {
+      return {
+        type_name: item.type_name,
+        blueprints: item.blueprints.map((blueprint) => ({
+          ...blueprint,
+          key: `${blueprint.type_id}-${blueprint?.material_efficiency || 0}-${blueprint?.time_efficiency || 0}-${blueprint.runs}`,
+        })),
+      };
+    });
+    setBlueprints(correctedData);
+    return;
+  
+}
+
+async function createRequisition(selectedItems){
+
+  // Required format for api
+  const requisitionItems = selectedItems.map((item) => ({
+    TypeId: item.type_id,
+    Name: item.type_name,
+    Runs: item.runs,
+    MaterialEfficiency: item.material_efficiency || 0,
+    TimeEfficiency: item.time_efficiency || 0,
+    //Quantity: item.quantity,
+  }));
+  
+  const response = await fetch(
+    `${window.location.protocol}//${window.location.hostname}:2727/api/requisition`,
+    {
+      method: "POST",
+      credentials: "include",
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({Blueprints:requisitionItems}),
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to create requisition");
+  }
+  return response.json();
 }
