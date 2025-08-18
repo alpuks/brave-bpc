@@ -348,29 +348,66 @@ VALUES (?,?,?)
 	return err
 }
 
-func (dao *dao) getRequisition(reqId int64) (*requisitionOrder, error) {
-	var bpjs []byte
-	req := &requisitionOrder{}
-	err := dao.db.QueryRow(`
-SELECT *
+func (dao *dao) listRequisitionOrders(status requisitionStatus) ([]requisitionOrder, error) {
+	rows, err := dao.db.Query(`
+SELECT id, character_id, blueprints, updated_at
 FROM requisition_order
-WHERE id=?`, reqId).Scan(
-		req.Id,
-		req.CharacterId,
-		&bpjs,
-		req.Status,
-		req.CreatedAt,
-		req.UpdatedAt,
-		req.UpdatedBy,
-		req.PublicNotes)
+WHERE requisition_status=?
+ORDER BY created_at ASC
+`, status)
 	if err != nil {
 		return nil, err
 	}
+
+	reqs := []requisitionOrder{}
+	for rows.Next() {
+		var req requisitionOrder
+		var bpjs []byte
+		if err = rows.Scan(&req.Id, &req.CharacterId, &bpjs, &req.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("error scanning row: %w", err)
+		}
+
+		if err = json.Unmarshal(bpjs, &req.Blueprints); err != nil {
+			return nil, fmt.Errorf("error unmarshalling json: %w", err)
+		}
+
+		reqs = append(reqs, req)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return reqs, nil
+}
+
+func (dao *dao) getRequisition(reqId int64) (*requisitionOrder, error) {
+	var bpjs []byte
+	var req requisitionOrder
+	var notes sql.NullString
+	err := dao.db.QueryRow(`
+SELECT *
+FROM requisition_order
+WHERE id=?
+`, reqId).Scan(
+		&req.Id,
+		&req.CharacterId,
+		&req.Status,
+		&req.CreatedAt,
+		&req.UpdatedAt,
+		&req.UpdatedBy,
+		&bpjs,
+		&notes)
+	if err != nil {
+		return nil, err
+	}
+
+	req.PublicNotes = notes.String
+
 	if err = json.Unmarshal(bpjs, &req.Blueprints); err != nil {
 		return nil, fmt.Errorf("error unmarshalling json: %w", err)
 	}
 
-	return req, nil
+	return &req, nil
 }
 
 func (dao *dao) requisitionExists(reqId int64) (bool, error) {
