@@ -19,6 +19,9 @@ import whiteEveImage from "../assets/eve-sso-login-white-small.png";
 import { MoonIcon, SunIcon } from "./Icons";
 import { useTheme } from "../contexts/ThemeContext";
 
+const AuthMap = { 0: "GUEST", 1: "MEMBER", 2: "WORKER", 3: "ADMIN" } as const;
+type AuthLevel = keyof typeof AuthMap;
+
 export function NavBar({ authContext }: { authContext: AuthContext }) {
   const isAuthenticated = authContext?.isAuthenticated;
   const user = authContext?.user;
@@ -48,7 +51,7 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
             </NavbarItem>
           </>
         )}
-        {user?.auth_level === "admin" && (
+        {user?.auth_level === 3 && (
           <NavbarItem>
             <Link href="/admin">Admin</Link>
           </NavbarItem>
@@ -78,6 +81,11 @@ export function NavBar({ authContext }: { authContext: AuthContext }) {
                   color: "default",
                 }}
                 name={user?.character_name}
+                description={
+                  user?.auth_level != null
+                    ? AuthMap[user.auth_level as AuthLevel]
+                    : undefined
+                }
                 className="text-white"
               />
             </DropdownTrigger>
