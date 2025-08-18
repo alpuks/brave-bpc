@@ -1,4 +1,4 @@
-'use client'
+"use client";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -49,7 +49,6 @@ function RouteComponent() {
   const [sortKey, setSortKey] = useState<keyof Blueprint | "name">("name");
   const [sortAsc, setSortAsc] = useState(true);
 
-
   const [selected, setSelected] = useState<
     Record<string, { checked: boolean; value: number }>
   >({});
@@ -73,10 +72,11 @@ function RouteComponent() {
       // if unchecked, fine; if checked, enforce overall max
       if (checked && getTotal(newState) > MAX_TOTAL) {
         addToast({
-          title:"Selection limit exceeded",
-          description:"You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
+          title: "Selection limit exceeded",
+          description:
+            "You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
           color: "danger",
-        })
+        });
         return prev; // reject change
       }
       return newState;
@@ -99,22 +99,26 @@ function RouteComponent() {
       // enforce global max
       if (getTotal(newState) > MAX_TOTAL) {
         addToast({
-          title:"Selection limit exceeded",
-          description:"You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
+          title: "Selection limit exceeded",
+          description:
+            "You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
           color: "danger",
-        })
+        });
 
         return prev; // reject change
       }
-     
 
       return newState;
     });
   };
-const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprint)=>({...blueprint, type_name:group.type_name}))).filter(
-    (item) => selected[item.key]?.checked
-  )
-
+  const selectedItems = blueprints
+    .flatMap((group) =>
+      group.blueprints.map((blueprint) => ({
+        ...blueprint,
+        type_name: group.type_name,
+      }))
+    )
+    .filter((item) => selected[item.key]?.checked);
 
   const toggleExpand = (groupId: string) => {
     setExpandedGroups((prev) => {
@@ -136,8 +140,6 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
       setSortAsc(true);
     }
   };
-
-
 
   const filteredGroups = useMemo(() => {
     if (!blueprints || blueprints.length === 0) return [];
@@ -228,7 +230,6 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
 
                       {expandedGroups.has(type_name) &&
                         items.map((item) => {
-
                           const state = selected[item.key];
                           return (
                             <TableRow key={item.key}>
@@ -255,10 +256,7 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
                                     }
                                     value={state?.value || 0}
                                     onValueChange={(e) =>
-                                      handleValueChange(
-                                        item,
-                                        e
-                                      )
+                                      handleValueChange(item, e)
                                     }
                                   />
                                 )}
@@ -307,10 +305,7 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
                                 maxValue={item.quantity}
                                 value={state?.value || 0}
                                 onValueChange={(e) =>
-                                  handleValueChange(
-                                    item,
-                                    e
-                                  )
+                                  handleValueChange(item, e)
                                 }
                               />
                             )}
@@ -336,7 +331,7 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
       {selected && (
         <div className="flex gap-4 flex-col border rounded-lg p-4">
           <h2 className="text-center font-bold">Selected Items</h2>
-           
+
           <Table className="flex-1 h-full">
             <TableHeader>
               <TableColumn>Name</TableColumn>
@@ -346,9 +341,7 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
               <TableColumn>TE</TableColumn>
             </TableHeader>
             <TableBody>
-              {selectedItems.map(
-              
-             (item)=>{
+              {selectedItems.map((item) => {
                 const quantity = selected[item.key]?.value || 1;
                 return (
                   <TableRow key={item.key + "selected"}>
@@ -368,50 +361,53 @@ const selectedItems = blueprints.flatMap((group)=>group.blueprints.map((blueprin
               })}
             </TableBody>
           </Table>
-          <Button className="object-bottom" onPress={()=> createRequisition(selectedItems)}>Submit</Button>
+          <Button
+            className="object-bottom"
+            onPress={() => createRequisition(selectedItems)}
+          >
+            Submit
+          </Button>
         </div>
       )}
     </div>
   );
 }
-async function fetchBlueprints(setBlueprints:React.Dispatch<React.SetStateAction<BlueprintApiResponse[]>>) {
-  
-    const response = await fetch(
-      `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
-      {
-        method: "GET",
-        credentials: "include",
-        mode: "cors",
-      }
-    );
-    const data: Array<BlueprintApiResponse> = await response.json();
+async function fetchBlueprints(
+  setBlueprints: React.Dispatch<React.SetStateAction<BlueprintApiResponse[]>>
+) {
+  const response = await fetch(
+    `${window.location.protocol}//${window.location.hostname}:2727/api/blueprints`,
+    {
+      method: "GET",
+      credentials: "include",
+      mode: "cors",
+    }
+  );
+  const data: Array<BlueprintApiResponse> = await response.json();
 
-    const correctedData = data.map((item) => {
-      return {
-        type_name: item.type_name,
-        blueprints: item.blueprints.map((blueprint) => ({
-          ...blueprint,
-          key: `${blueprint.type_id}-${blueprint?.material_efficiency || 0}-${blueprint?.time_efficiency || 0}-${blueprint.runs}`,
-        })),
-      };
-    });
-    setBlueprints(correctedData);
-    return;
-  
+  const correctedData = data.map((item) => {
+    return {
+      type_name: item.type_name,
+      blueprints: item.blueprints.map((blueprint) => ({
+        ...blueprint,
+        key: `${blueprint.type_id}-${blueprint?.material_efficiency || 0}-${blueprint?.time_efficiency || 0}-${blueprint.runs}`,
+      })),
+    };
+  });
+  setBlueprints(correctedData);
+  return;
 }
 
-async function createRequisition(selectedItems){
-
+async function createRequisition(selectedItems) {
   // Required format for api
   const requisitionItems = selectedItems.map((item) => ({
-    TypeId: item.type_id,
-    Name: item.type_name,
-    Runs: item.runs,
-    MaterialEfficiency: item.material_efficiency || 0,
-    TimeEfficiency: item.time_efficiency || 0,
-    //Quantity: item.quantity,
+    type_id: item.type_id,
+    runs: item.runs,
+    material_efficiency: item.material_efficiency || 0,
+    time_efficiency: item.time_efficiency || 0,
+    quantity: item.quantity,
   }));
-  
+
   const response = await fetch(
     `${window.location.protocol}//${window.location.hostname}:2727/api/requisition`,
     {
@@ -421,7 +417,7 @@ async function createRequisition(selectedItems){
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({Blueprints:requisitionItems}),
+      body: JSON.stringify({ blueprints: requisitionItems }),
     }
   );
   if (!response.ok) {
