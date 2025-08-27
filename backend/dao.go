@@ -348,13 +348,22 @@ VALUES (?,?,?)
 	return err
 }
 
-func (dao *dao) listRequisitionOrders(status requisitionStatus) ([]requisitionOrder, error) {
+func (dao *dao) listRequisitionOrders(characterId int32, status requisitionStatus) ([]requisitionOrder, error) {
+	params := sqlparams.New()
+	filter := ""
+	if characterId > 0 {
+		filter = "AND character_id = ?"
+		params.AddParam(characterId)
+	}
+	params.AddParam(status)
+
 	rows, err := dao.db.Query(`
 SELECT *
 FROM requisition_order
 WHERE requisition_status=?
+`+filter+`
 ORDER BY created_at ASC
-`, status)
+`, params...)
 	if err != nil {
 		return nil, err
 	}

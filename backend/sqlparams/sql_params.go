@@ -9,8 +9,8 @@ import (
 type SqlParams []any
 
 // SqlParams creates a new instance of SqlParams
-func New() SqlParams {
-	return SqlParams{}
+func New(params ...any) SqlParams {
+	return append(SqlParams{}, params...)
 }
 
 // AddParam adds a new parameter to SqlParams and returns a "?" string for use in queries

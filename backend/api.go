@@ -59,7 +59,7 @@ func (app *app) getConfig(w http.ResponseWriter, r *http.Request) {
 func (app *app) postConfig(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	user := app.getUserFromSession(r)
-	logger := getLoggerFromContext(r.Context())
+	logger := getLoggerFromContext(r.Context()).Named("api")
 
 	bytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -122,7 +122,7 @@ func (app *app) getBlueprints(w http.ResponseWriter, r *http.Request) {
 func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	user := app.getUserFromSession(r)
-	logger := getLoggerFromContext(r.Context())
+	logger := getLoggerFromContext(r.Context()).Named("api")
 
 	reqId, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -253,7 +253,15 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 	strStatus := r.URL.Query().Get("status")
 	status, _ := strconv.ParseInt(strStatus, 10, 64)
 
-	orders, err := app.dao.listRequisitionOrders(requisitionStatus(status))
+	user := app.getUserFromSession(r)
+	characterId := user.CharacterId
+
+	if user.Level >= authLevel_Worker {
+		parsedChar, _ := strconv.ParseInt(r.URL.Query().Get("character_id"), 10, 64)
+		characterId = int32(parsedChar)
+	}
+
+	orders, err := app.dao.listRequisitionOrders(characterId, requisitionStatus(status))
 	if err != nil {
 		logger.Error("error fetching requisition orders", zap.Error(err))
 		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)
