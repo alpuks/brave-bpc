@@ -48,7 +48,7 @@ type GetBlueprintsType struct {
 // change the token which is being used to refresh assets and names. eg. if roles or admin character changes
 func (app *app) refreshAdminToken(w http.ResponseWriter, r *http.Request) {
 	getLoggerFromContext(r.Context()).Debug("refreshAdminToken")
-	app.adminTokenChan <- struct{}{}
+	app.adminTokenRefreshChan <- struct{}{}
 	httpWrite(w, struct{}{})
 }
 
@@ -89,7 +89,7 @@ func (app *app) postConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiInvalid(w http.ResponseWriter, r *http.Request) {
-	httpError(w, "invalid request", http.StatusBadRequest)
+	httpError(w, "Not Found", http.StatusNotFound)
 }
 
 func (app *app) getBlueprints(w http.ResponseWriter, r *http.Request) {
@@ -132,6 +132,7 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 
 	action := r.PathValue("action")
 	logger = logger.With(zap.Int64("id", reqId), zap.String("action", action))
+	logger.Debug("patchRequisitionOrder")
 
 	var notes string
 
@@ -166,6 +167,7 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			httpError(w, "resource is locked", http.StatusConflict)
 			return
 		}
+
 		req, err := app.dao.getRequisition(reqId)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -175,6 +177,7 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			httpError(w, "error getting requisition", http.StatusInternalServerError)
 			return
 		}
+
 		if user.CharacterId != req.CharacterId {
 			httpError(w, "user/owner mismatch", http.StatusUnauthorized)
 			return
@@ -222,8 +225,6 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	//httpError(w, "ok", http.StatusOK)
 }
 
 func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {

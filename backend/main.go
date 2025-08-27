@@ -65,10 +65,10 @@ type app struct {
 	invStateLock   sync.RWMutex
 	inventoryState *inventoryState
 
-	requisitionLocks *syncMap[int64, int32]
-	flake            *snowflake.Node
-	jwks             *EsiJwks
-	adminTokenChan   chan struct{}
+	requisitionLocks      *syncMap[int64, int32]
+	flake                 *snowflake.Node
+	jwks                  *EsiJwks
+	adminTokenRefreshChan chan struct{}
 }
 
 func main() {
@@ -98,9 +98,9 @@ func main() {
 			typeNames:      map[int32]string{},
 			tree:           map[int64]CorpAsset{},
 		},
-		requisitionLocks: newSyncMap[int64, int32](),
-		runtimeConfig:    runtimeConfig,
-		adminTokenChan:   make(chan struct{}, 1),
+		requisitionLocks:      newSyncMap[int64, int32](),
+		runtimeConfig:         runtimeConfig,
+		adminTokenRefreshChan: make(chan struct{}, 1),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -134,12 +134,12 @@ func main() {
 	mux := http.NewServeMux()
 	baseChain := NewMwChain(app.requestMiddleware)
 	chain := baseChain.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
-	mux.Handle("/metrics", chain.Handle(promhttp.Handler()))
 	mux.Handle("/", chain.HandleFunc(app.root))
-	mux.Handle("/login", chain.HandleFunc(app.login))
-	mux.Handle("/login/char", chain.HandleFunc(app.addCharToAccount))
-	mux.Handle("/login/scope", chain.HandleFunc(app.addScopeToAccount))
-	mux.Handle("/config", chain.HandleFunc(app.printConfig))
+	mux.Handle("GET /metrics", chain.Handle(promhttp.Handler()))
+	mux.Handle("GET /login", chain.HandleFunc(app.login))
+	mux.Handle("GET /login/char", chain.HandleFunc(app.addCharToAccount))
+	mux.Handle("GET /login/scope", chain.HandleFunc(app.addScopeToAccount))
+	mux.Handle("GET /config", chain.HandleFunc(app.printConfig))
 
 	app.createApiHandlers(mux, baseChain)
 
