@@ -16,14 +16,15 @@ type postRequisitionOrderRequest struct {
 }
 
 type requisitionOrder struct {
-	Id          int64                `json:"id,omitempty"`
-	CharacterId int32                `json:"character_id,omitempty"`
-	Status      requisitionStatus    `json:"status,omitempty"`
-	CreatedAt   time.Time            `json:"created_at,omitempty"`
-	UpdatedAt   time.Time            `json:"updated_at,omitempty"`
-	Blueprints  []requestedBlueprint `json:"blueprints,omitempty"`
-	UpdatedBy   string               `json:"updated_by,omitempty"`
-	PublicNotes string               `json:"public_notes,omitempty"`
+	Id            int64                `json:"id,omitempty"`
+	CharacterId   int32                `json:"character_id,omitempty"`
+	Status        requisitionStatus    `json:"status,omitempty"`
+	CreatedAt     time.Time            `json:"created_at,omitempty"`
+	UpdatedAt     time.Time            `json:"updated_at,omitempty"`
+	Blueprints    []requestedBlueprint `json:"blueprints,omitempty"`
+	CharacterName string               `json:"character_name,omitempty"`
+	UpdatedBy     string               `json:"updated_by,omitempty"`
+	PublicNotes   string               `json:"public_notes,omitempty"`
 }
 
 type requisitionStatus int8

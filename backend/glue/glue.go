@@ -279,6 +279,7 @@ const (
 type NameCategory string
 
 const (
+	NameCategory_All           NameCategory = ""
 	NameCategory_Alliance      NameCategory = "alliance"
 	NameCategory_Character     NameCategory = "character"
 	NameCategory_Constellation NameCategory = "constellation"

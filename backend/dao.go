@@ -350,7 +350,7 @@ VALUES (?,?,?)
 
 func (dao *dao) listRequisitionOrders(status requisitionStatus) ([]requisitionOrder, error) {
 	rows, err := dao.db.Query(`
-SELECT id, character_id, blueprints, updated_at
+SELECT *
 FROM requisition_order
 WHERE requisition_status=?
 ORDER BY created_at ASC
@@ -363,7 +363,7 @@ ORDER BY created_at ASC
 	for rows.Next() {
 		var req requisitionOrder
 		var bpjs []byte
-		if err = rows.Scan(&req.Id, &req.CharacterId, &bpjs, &req.UpdatedAt); err != nil {
+		if err = rows.Scan(&req.Id, &req.CharacterId, &req.Status, &req.CreatedAt, &req.UpdatedAt, &req.UpdatedBy, &bpjs, &req.PublicNotes); err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
 

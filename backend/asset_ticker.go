@@ -18,18 +18,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// runs an infinite loop
-func (app *app) createOauthContextLoop(logger *zap.Logger) context.Context {
-	var attempts int
-	var pair scopeSourcePair
-	for len(pair.scope) == 0 {
-		pair = app.getAdminToken(logger)
+var (
+	errCtxInitial      = errors.New("initial oauth context")
+	errCtxCreateFailed = errors.New("createOauthContext failed")
+)
 
-		if len(pair.scope) == 0 {
-			attempts++
-			logger.Warn("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter), zap.Int("attempts", attempts))
-			time.Sleep(time.Minute)
-		}
+func (app *app) createOauthContext(logger *zap.Logger) context.Context {
+	pair := app.getAdminToken(logger)
+	if len(pair.scope) == 0 {
+		logger.Warn("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter))
+		ctx, cancel := context.WithCancelCause(context.Background())
+		cancel(errCtxCreateFailed)
+		return ctx
 	}
 
 	return context.WithValue(context.Background(), goesi.ContextOAuth2, pair.token)
@@ -38,7 +38,7 @@ func (app *app) createOauthContextLoop(logger *zap.Logger) context.Context {
 func (app *app) ticker(done <-chan struct{}) {
 	var (
 		logger         = app.logger.Named("ticker")
-		ctx            = app.createOauthContextLoop(logger)
+		ctx            = app.createOauthContext(logger)
 		nextCtxRefresh time.Time
 	)
 
@@ -63,7 +63,7 @@ func (app *app) ticker(done <-chan struct{}) {
 			now := time.Now()
 			if nextCtxRefresh.Before(now) {
 				logger.Debug("refreshing token")
-				ctx = app.createOauthContextLoop(logger)
+				ctx = app.createOauthContext(logger)
 				nextCtxRefresh = now.Add(10 * time.Second)
 			}
 
@@ -190,7 +190,7 @@ func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			inv.typeNames = app.fetchTypeNames(ctx, logger, unknownTypeIds)
+			inv.typeNames = app.fetchTypeNames(ctx, logger, glue.NameCategory_InventoryType, unknownTypeIds)
 		}()
 	}
 
@@ -307,7 +307,7 @@ func (app *app) fetchCorpBlueprints(ctx context.Context, logger *zap.Logger) ([]
 	return blueprints, nil
 }
 
-func (app *app) fetchTypeNames(ctx context.Context, logger *zap.Logger, typeIds []int32) map[int32]string {
+func (app *app) fetchTypeNames(ctx context.Context, logger *zap.Logger, category glue.NameCategory, typeIds []int32) map[int32]string {
 	slices.Sort(typeIds)
 	typeIds = slices.Compact(typeIds)
 
@@ -334,7 +334,7 @@ func (app *app) fetchTypeNames(ctx context.Context, logger *zap.Logger, typeIds 
 		}
 
 		for _, v := range namePage {
-			if v.Category == string(glue.NameCategory_InventoryType) {
+			if category == glue.NameCategory_All || v.Category == string(category) {
 				names[v.Id] = v.Name
 			}
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/AlHeamer/brave-bpc/glue"
 	"go.uber.org/zap"
 )
 
@@ -248,11 +249,31 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context()).Named("api")
 	logger.Debug("list requisition orders")
 
-	orders, err := app.dao.listRequisitionOrders(requisitionStatus_Open)
+	strStatus := r.URL.Query().Get("status")
+	status, _ := strconv.ParseInt(strStatus, 10, 64)
+
+	orders, err := app.dao.listRequisitionOrders(requisitionStatus(status))
 	if err != nil {
 		logger.Error("error fetching requisition orders", zap.Error(err))
 		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)
 		return
+	}
+
+	var characters []int32
+	for _, order := range orders {
+		characters = append(characters, order.CharacterId)
+	}
+
+	ctx := app.createOauthContext(logger)
+	charMap := app.fetchTypeNames(ctx, logger, glue.NameCategory_Character, characters)
+
+	for i, order := range orders {
+		name, ok := charMap[order.CharacterId]
+		if ok {
+			orders[i].CharacterName = name
+		} else {
+			orders[i].CharacterName = strconv.FormatInt(int64(order.CharacterId), 10)
+		}
 	}
 
 	httpWrite(w, orders)
