@@ -143,8 +143,8 @@ func main() {
 
 	app.createApiHandlers(mux, baseChain)
 
-	done := make(chan struct{})
-	go app.ticker(done)
+	tickerCtx, tickerCancel := context.WithCancel(context.Background())
+	go app.ticker(tickerCtx)
 
 	server := &http.Server{
 		Addr:         ":" + app.runtimeConfig.httpPort,
@@ -169,7 +169,7 @@ func main() {
 	<-sigChan
 	logger.Info("received os interrupt signal, shutting down gracefully")
 
-	done <- struct{}{}
+	tickerCancel()
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()

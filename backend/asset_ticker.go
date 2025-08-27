@@ -35,46 +35,57 @@ func (app *app) createOauthContext(logger *zap.Logger) context.Context {
 	return context.WithValue(context.Background(), goesi.ContextOAuth2, pair.token)
 }
 
-func (app *app) ticker(done <-chan struct{}) {
+func (app *app) ticker(ctx context.Context) {
 	var (
-		logger         = app.logger.Named("ticker")
-		ctx            = app.createOauthContext(logger)
-		nextCtxRefresh time.Time
+		logger          = app.logger.Named("ticker")
+		ticker          = time.NewTicker(time.Second)
+		ctxRefreshDelay time.Time
+		esiCtx          context.Context
 	)
+	ticker.Stop() // stop the ticker until we get a valid esiCtx
 
-	invState, err := app.updateBlueprintInventory(ctx, logger, false)
-	if err != nil {
-		logger.Error(err.Error())
+	{
+		var cancel context.CancelCauseFunc
+		esiCtx, cancel = context.WithCancelCause(context.Background())
+		cancel(errCtxInitial)
 	}
 
-	app.invStateLock.Lock()
-	app.inventoryState = invState
-	app.invStateLock.Unlock()
+	refreshToken := func(ctx context.Context, now time.Time) context.Context {
+		if ctxRefreshDelay.After(now) {
+			return ctx
+		}
 
-	ticker := time.NewTicker(60 * time.Minute)
+		logger.Debug("refreshing token", zap.NamedError("cause", context.Cause(ctx)))
+		ctxRefreshDelay = now.Add(10 * time.Second)
+		ctx = app.createOauthContext(logger)
+		if ctx.Err() == nil {
+			ticker.Reset(time.Second)
+		}
+
+		return ctx
+	}
 
 	for {
 		select {
-		case <-done:
+		case <-ctx.Done():
 			logger.Info("exiting ticker loop")
 			return
 
+		case <-esiCtx.Done():
+			esiCtx = refreshToken(esiCtx, time.Now())
+
 		case <-app.adminTokenRefreshChan:
-			now := time.Now()
-			if nextCtxRefresh.Before(now) {
-				logger.Debug("refreshing token")
-				ctx = app.createOauthContext(logger)
-				nextCtxRefresh = now.Add(10 * time.Second)
-			}
+			esiCtx = refreshToken(esiCtx, time.Now())
 
 		case <-ticker.C:
-			// 1 minute jitter window
+			var jitter time.Duration
 			switch app.runtimeConfig.environment {
 			case "prod", "production":
-				time.Sleep(time.Duration(rand.IntN(60)) * time.Second)
+				jitter = time.Duration(rand.Int64N(int64(2 * time.Second)))
 			}
+			ticker.Reset(time.Hour + jitter)
 
-			invState, err := app.updateBlueprintInventory(ctx, logger, false)
+			invState, err := app.updateBlueprintInventory(esiCtx, logger, false)
 			if err != nil {
 				logger.Error(err.Error())
 			} else {
