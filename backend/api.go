@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
-	"github.com/AlHeamer/brave-bpc/glue"
 	"go.uber.org/zap"
 )
 
@@ -131,6 +131,10 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := r.PathValue("action")
+	if strings.Contains(r.Pattern, "cancel") {
+		action = "cancel"
+	}
+
 	logger = logger.With(zap.Int64("id", reqId), zap.String("action", action))
 	logger.Debug("patchRequisitionOrder")
 
@@ -144,9 +148,18 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if found, _ := app.dao.requisitionExists(reqId); !found {
-			logger.Debug("invalid requisition")
-			httpError(w, "invalid requisistion", http.StatusBadRequest)
+		req, err := app.dao.getRequisition(reqId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				httpError(w, "invalid requisition", http.StatusBadRequest)
+				return
+			}
+			httpError(w, "error getting requisition", http.StatusInternalServerError)
+			return
+		}
+
+		if req.Status != requisitionStatus_Open {
+			httpError(w, "requisition is not open status="+req.Status.String(), http.StatusConflict)
 			return
 		}
 
@@ -183,8 +196,16 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if req.Status != requisitionStatus_Open {
+			httpError(w, "requisition is not open status="+req.Status.String(), http.StatusConflict)
+			return
+		}
+
 		app.requisitionLocks.Set(reqId, user.CharacterId)
-		app.dao.cancelRequisition(reqId, user.CharacterName)
+		if err = app.dao.cancelRequisition(reqId, user.CharacterName); err != nil {
+			logger.Error("error cancelling requisition", zap.Error(err))
+			httpError(w, "error cancelling requisition", http.StatusInternalServerError)
+		}
 		app.requisitionLocks.Delete(reqId)
 
 	case "complete":
@@ -200,11 +221,27 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		req, err := app.dao.getRequisition(reqId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				httpError(w, "invalid requisition", http.StatusBadRequest)
+				return
+			}
+			httpError(w, "error getting requisition", http.StatusInternalServerError)
+			return
+		}
+
+		if req.Status != requisitionStatus_Open {
+			httpError(w, "requisition is not open status="+req.Status.String(), http.StatusConflict)
+			return
+		}
+
 		if err := app.dao.completeRequisition(reqId, user.CharacterName, notes); err != nil {
 			logger.Error("error completing requisition", zap.Error(err))
 			httpError(w, "error completing requisition", http.StatusInternalServerError)
 			return
 		}
+		app.requisitionLocks.Delete(reqId)
 
 	case "reject":
 		lockUser, ok := app.requisitionLocks.Get(reqId)
@@ -219,11 +256,27 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		req, err := app.dao.getRequisition(reqId)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				httpError(w, "invalid requisition", http.StatusBadRequest)
+				return
+			}
+			httpError(w, "error getting requisition", http.StatusInternalServerError)
+			return
+		}
+
+		if req.Status != requisitionStatus_Open {
+			httpError(w, "requisition is not open status="+req.Status.String(), http.StatusConflict)
+			return
+		}
+
 		if err := app.dao.rejectRequisition(reqId, user.CharacterName, notes); err != nil {
 			logger.Error("error rejecting requisition", zap.Error(err))
 			httpError(w, "error rejecting requisition", http.StatusInternalServerError)
 			return
 		}
+		app.requisitionLocks.Delete(reqId)
 	}
 }
 
@@ -266,23 +319,6 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 		logger.Error("error fetching requisition orders", zap.Error(err))
 		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)
 		return
-	}
-
-	var characters []int32
-	for _, order := range orders {
-		characters = append(characters, order.CharacterId)
-	}
-
-	ctx := app.createOauthContext(logger)
-	charMap := app.fetchTypeNames(ctx, logger, glue.NameCategory_Character, characters)
-
-	for i, order := range orders {
-		name, ok := charMap[order.CharacterId]
-		if ok {
-			orders[i].CharacterName = name
-		} else {
-			orders[i].CharacterName = strconv.FormatInt(int64(order.CharacterId), 10)
-		}
 	}
 
 	httpWrite(w, orders)

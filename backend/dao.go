@@ -193,7 +193,7 @@ user_id=?
 	res, err := d.db.Exec(`
 INSERT INTO toon
 (user_id, character_id, owner_hash)
-VALUES(?, ?, ?)
+VALUES(?,?,?)
 `, userId, characterId, ownerHash)
 	if err != nil {
 		logger.Error("error creating toon", zap.Error(err))
@@ -341,9 +341,9 @@ func (dao *dao) createRequisition(characterId int32, characterName string, bluep
 
 	_, err = dao.db.Exec(`
 INSERT INTO requisition_order
-(character_id, blueprints, updated_by)
-VALUES (?,?,?)
-`, characterId, bytes, characterName)
+(character_id, blueprints, updated_by, character_name)
+VALUES (?,?,?,?)
+`, characterId, bytes, characterName, characterName)
 
 	return err
 }
@@ -370,12 +370,14 @@ ORDER BY created_at ASC
 
 	reqs := []requisitionOrder{}
 	for rows.Next() {
+		var notes sql.NullString
 		var req requisitionOrder
 		var bpjs []byte
-		if err = rows.Scan(&req.Id, &req.CharacterId, &req.Status, &req.CreatedAt, &req.UpdatedAt, &req.UpdatedBy, &bpjs, &req.PublicNotes); err != nil {
+		if err = rows.Scan(&req.Id, &req.CharacterId, &req.Status, &req.CreatedAt, &req.UpdatedAt, &req.UpdatedBy, &bpjs, &notes, &req.CharacterName); err != nil {
 			return nil, fmt.Errorf("error scanning row: %w", err)
 		}
 
+		req.PublicNotes = notes.String
 		if err = json.Unmarshal(bpjs, &req.Blueprints); err != nil {
 			return nil, fmt.Errorf("error unmarshalling json: %w", err)
 		}
@@ -405,7 +407,9 @@ WHERE id=?
 		&req.UpdatedAt,
 		&req.UpdatedBy,
 		&bpjs,
-		&notes)
+		&notes,
+		&req.CharacterName,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -438,12 +442,12 @@ func (dao *dao) cancelRequisition(reqId int64, updatedBy string) error {
 	_, err := dao.db.Exec(`
 UPDATE requisition_order
 SET
-	status=?
-	updated_at=NOW()
-	updated_by="?"
+	requisition_status=?,
+	updated_at=NOW(),
+	updated_by=?
 WHERE
 	id=?
-`, requisitionStatus_Canceled, reqId, updatedBy)
+`, requisitionStatus_Canceled, updatedBy, reqId)
 
 	return err
 }
@@ -452,13 +456,13 @@ func (dao *dao) completeRequisition(reqId int64, updatedBy string, notes string)
 	_, err := dao.db.Exec(`
 UPDATE requisition_order
 SET
-	status=?
-	public_notes="?"
-	updated_at=NOW()
-	updated_by="?"
+	requisition_status=?,
+	notes=?,
+	updated_at=NOW(),
+	updated_by=?
 WHERE
 	id=?
-`, requisitionStatus_Completed, notes, reqId, updatedBy)
+`, requisitionStatus_Completed, notes, updatedBy, reqId)
 
 	return err
 }
@@ -467,10 +471,10 @@ func (dao *dao) rejectRequisition(reqId int64, updatedBy string, notes string) e
 	_, err := dao.db.Exec(`
 UPDATE requisition_order
 SET
-	status=?
-	public_notes="?"
-	updated_at=NOW()
-	updated_by="?"
+	requisition_status=?,
+	notes=?,
+	updated_at=NOW(),
+	updated_by=?
 WHERE
 	id=?
 `, requisitionStatus_Rejected, notes, updatedBy, reqId)

@@ -56,7 +56,7 @@ func (app *app) ticker(ctx context.Context) {
 		}
 
 		logger.Debug("refreshing token", zap.NamedError("cause", context.Cause(ctx)))
-		ctxRefreshDelay = now.Add(10 * time.Second)
+		ctxRefreshDelay = now.Add(time.Minute)
 		ctx = app.createOauthContext(logger)
 		if ctx.Err() == nil {
 			ticker.Reset(time.Second)

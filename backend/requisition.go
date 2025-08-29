@@ -42,3 +42,7 @@ var requisitionStauts_name = map[requisitionStatus]string{
 	requisitionStatus_Completed: "completed",
 	requisitionStatus_Rejected:  "rejected",
 }
+
+func (r requisitionStatus) String() string {
+	return requisitionStauts_name[r]
+}
