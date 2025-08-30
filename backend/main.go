@@ -103,10 +103,8 @@ func main() {
 		adminTokenRefreshChan: make(chan struct{}, 1),
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	app.jwks, err = NewEsiJwks(ctx,
+	threadCtx, cancelThreads := context.WithCancel(context.Background())
+	app.jwks, err = NewEsiJwks(threadCtx,
 		app.runtimeConfig.appId,
 		app.runtimeConfig.jwtSkew,
 		jwk.WithMinInterval(time.Hour),
@@ -143,8 +141,7 @@ func main() {
 
 	app.createApiHandlers(mux, baseChain)
 
-	tickerCtx, tickerCancel := context.WithCancel(context.Background())
-	go app.ticker(tickerCtx)
+	go app.ticker(threadCtx)
 
 	server := &http.Server{
 		Addr:         ":" + app.runtimeConfig.httpPort,
@@ -169,7 +166,7 @@ func main() {
 	<-sigChan
 	logger.Info("received os interrupt signal, shutting down gracefully")
 
-	tickerCancel()
+	cancelThreads()
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelShutdown()
