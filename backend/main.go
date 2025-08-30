@@ -28,13 +28,7 @@ const (
 	esiUserAgent = "brave-bpc/0.0.0 (eve:Al Heamer)"
 
 	headerPages       = "X-Pages"
-	headerErrorRemain = "X-Esi-Error-Limit-Remain" // errors remaining this window
-	headerErrorReset  = "X-Esi-Error-Limit-Reset"  // seconds until the next error window
 	esiRequestTimeout = 20 * time.Second
-)
-
-var (
-	errErrorsExceeded = errors.New("too many errors")
 )
 
 type appConfig struct {

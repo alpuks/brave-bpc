@@ -423,21 +423,6 @@ WHERE id=?
 	return &req, nil
 }
 
-func (dao *dao) requisitionExists(reqId int64) (bool, error) {
-	var count int64
-	err := dao.db.QueryRow(`
-SELECT COUNT(1)
-FROM requisition
-WHERE id=?`, reqId).Scan(&count)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
-		}
-		return false, err
-	}
-	return count > 0, nil
-}
-
 func (dao *dao) cancelRequisition(reqId int64, updatedBy string) error {
 	_, err := dao.db.Exec(`
 UPDATE requisition_order

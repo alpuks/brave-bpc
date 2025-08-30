@@ -22,7 +22,7 @@ type (
 // creates a requestId, logger, retrieves session data, and stores them in the request context.
 func (app *app) requestMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t := time.Now()
+		now := time.Now()
 
 		requestId := app.flake.Generate()
 		logger := app.logger.With(zap.Int64("request_id", requestId.Int64()))
@@ -33,7 +33,7 @@ func (app *app) requestMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r.WithContext(ctx))
 
 		// write prometheus timing metrics
-		httpRequestDuration.WithLabelValues(r.Pattern).Observe(time.Since(t).Seconds())
+		httpRequestDuration.WithLabelValues(r.Pattern).Observe(time.Since(now).Seconds())
 	})
 }
 

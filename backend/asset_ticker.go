@@ -210,6 +210,7 @@ func (app *app) updateBlueprintInventory(ctx context.Context, logger *zap.Logger
 	inv.tree = app.buildAssetTree(inv.assets)
 
 	logger.Debug("updated blueprint inventory", zap.Duration("duration", time.Since(start)))
+	fetchBlueprintDuration.Observe(time.Since(start).Seconds())
 	return inv, nil
 }
 
@@ -490,52 +491,6 @@ func (app *app) fetchCorpHangarNames(ctx context.Context, logger *zap.Logger) []
 	}
 
 	return out
-}
-
-func coalesceBlueprints(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) (
-	map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok,
-	map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok,
-) {
-	var (
-		bpos = make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok)
-		bpcs = make(map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok)
-	)
-
-	for _, bp := range blueprints {
-		var (
-			m   map[int32][]esi.GetCorporationsCorporationIdBlueprints200Ok
-			qty int32 = 1
-		)
-
-		switch bp.Quantity {
-		case -2: // BPC
-			m = bpcs
-		case -1: // researched BPO
-			m = bpos
-		default: // BPO stack > 0
-			m = bpos
-			qty = bp.Quantity
-		}
-
-		idx := -1
-		if _, ok := m[bp.TypeId]; !ok {
-			m[bp.TypeId] = []esi.GetCorporationsCorporationIdBlueprints200Ok{}
-		} else {
-			idx = slices.IndexFunc(m[bp.TypeId], func(e esi.GetCorporationsCorporationIdBlueprints200Ok) bool {
-				return sameBlueprintQuality(e, bp)
-			})
-		}
-
-		if idx == -1 { // equivalent blueprint not found
-			b := bp
-			b.Quantity = qty
-			m[bp.TypeId] = append(m[bp.TypeId], b)
-		} else {
-			m[bp.TypeId][idx].Quantity += qty
-		}
-	}
-
-	return bpos, bpcs
 }
 
 func buildItemLocationMap(blueprints esi.GetCorporationsCorporationIdBlueprints200OkList) map[int64]esi.GetCorporationsCorporationIdBlueprints200OkList {
