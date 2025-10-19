@@ -12,19 +12,20 @@ import {
   NavbarBrand,
   User,
 } from "@heroui/react";
-import { AuthContext } from "../contexts/AuthContext";
 import { useRouter } from "@tanstack/react-router";
 import blackEveImage from "../assets/eve-sso-login-black-small.png";
 import whiteEveImage from "../assets/eve-sso-login-white-small.png";
 import { MoonIcon, SunIcon } from "./Icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { useAuth } from "../contexts/AuthContext";
 
 const AuthMap = { 0: "GUEST", 1: "MEMBER", 2: "WORKER", 3: "ADMIN" } as const;
 type AuthLevel = keyof typeof AuthMap;
 
-export function NavBar({ authContext }: { authContext: AuthContext }) {
-  const isAuthenticated = authContext?.isAuthenticated;
-  const user = authContext?.user;
+export function NavBar() {
+  const authContext = useAuth();
+  const isAuthenticated = authContext.isAuthenticated;
+  const user = authContext.user;
 
   const router = useRouter();
 

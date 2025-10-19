@@ -30,14 +30,13 @@ declare module "@react-types/shared" {
 }
 
 function RootComponent() {
-  const { auth } = Route.useRouteContext();
   const { theme } = useTheme();
 
   return (
     <main
       className={`${theme} text-foreground bg-background min-h-screen flex flex-col items-center border-b gap-2`}
     >
-      <NavBar authContext={auth} />
+      <NavBar />
       <Outlet />
       <TanStackRouterDevtools />
     </main>
