@@ -350,12 +350,14 @@ VALUES (?,?,?,?)
 
 func (dao *dao) listRequisitionOrders(characterId int32, status requisitionStatus) ([]requisitionOrder, error) {
 	params := sqlparams.New()
+	// Status param moved to before character ID due to ordering in query
+	params.AddParam(status)
 	filter := ""
 	if characterId > 0 {
 		filter = "AND character_id = ?"
 		params.AddParam(characterId)
 	}
-	params.AddParam(status)
+	
 
 	rows, err := dao.db.Query(`
 SELECT *
