@@ -15,7 +15,6 @@ import { Route as AuthRequestsRouteImport } from './routes/_auth.requests'
 import { Route as AuthListRouteImport } from './routes/_auth.list'
 import { Route as AuthDashboardRouteImport } from './routes/_auth.dashboard'
 import { Route as AuthAdminRouteImport } from './routes/_auth.admin'
-import { Route as AuthRequestsRequestIdRouteImport } from './routes/_auth.requests.$requestId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/_auth',
@@ -46,27 +45,20 @@ const AuthAdminRoute = AuthAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthRoute,
 } as any)
-const AuthRequestsRequestIdRoute = AuthRequestsRequestIdRouteImport.update({
-  id: '/$requestId',
-  path: '/$requestId',
-  getParentRoute: () => AuthRequestsRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AuthAdminRoute
   '/dashboard': typeof AuthDashboardRoute
   '/list': typeof AuthListRoute
-  '/requests': typeof AuthRequestsRouteWithChildren
-  '/requests/$requestId': typeof AuthRequestsRequestIdRoute
+  '/requests': typeof AuthRequestsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AuthAdminRoute
   '/dashboard': typeof AuthDashboardRoute
   '/list': typeof AuthListRoute
-  '/requests': typeof AuthRequestsRouteWithChildren
-  '/requests/$requestId': typeof AuthRequestsRequestIdRoute
+  '/requests': typeof AuthRequestsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -75,26 +67,13 @@ export interface FileRoutesById {
   '/_auth/admin': typeof AuthAdminRoute
   '/_auth/dashboard': typeof AuthDashboardRoute
   '/_auth/list': typeof AuthListRoute
-  '/_auth/requests': typeof AuthRequestsRouteWithChildren
-  '/_auth/requests/$requestId': typeof AuthRequestsRequestIdRoute
+  '/_auth/requests': typeof AuthRequestsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/admin'
-    | '/dashboard'
-    | '/list'
-    | '/requests'
-    | '/requests/$requestId'
+  fullPaths: '/' | '/admin' | '/dashboard' | '/list' | '/requests'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/admin'
-    | '/dashboard'
-    | '/list'
-    | '/requests'
-    | '/requests/$requestId'
+  to: '/' | '/admin' | '/dashboard' | '/list' | '/requests'
   id:
     | '__root__'
     | '/'
@@ -103,7 +82,6 @@ export interface FileRouteTypes {
     | '/_auth/dashboard'
     | '/_auth/list'
     | '/_auth/requests'
-    | '/_auth/requests/$requestId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -155,40 +133,21 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthAdminRouteImport
       parentRoute: typeof AuthRoute
     }
-    '/_auth/requests/$requestId': {
-      id: '/_auth/requests/$requestId'
-      path: '/$requestId'
-      fullPath: '/requests/$requestId'
-      preLoaderRoute: typeof AuthRequestsRequestIdRouteImport
-      parentRoute: typeof AuthRequestsRoute
-    }
   }
 }
-
-interface AuthRequestsRouteChildren {
-  AuthRequestsRequestIdRoute: typeof AuthRequestsRequestIdRoute
-}
-
-const AuthRequestsRouteChildren: AuthRequestsRouteChildren = {
-  AuthRequestsRequestIdRoute: AuthRequestsRequestIdRoute,
-}
-
-const AuthRequestsRouteWithChildren = AuthRequestsRoute._addFileChildren(
-  AuthRequestsRouteChildren,
-)
 
 interface AuthRouteChildren {
   AuthAdminRoute: typeof AuthAdminRoute
   AuthDashboardRoute: typeof AuthDashboardRoute
   AuthListRoute: typeof AuthListRoute
-  AuthRequestsRoute: typeof AuthRequestsRouteWithChildren
+  AuthRequestsRoute: typeof AuthRequestsRoute
 }
 
 const AuthRouteChildren: AuthRouteChildren = {
   AuthAdminRoute: AuthAdminRoute,
   AuthDashboardRoute: AuthDashboardRoute,
   AuthListRoute: AuthListRoute,
-  AuthRequestsRoute: AuthRequestsRouteWithChildren,
+  AuthRequestsRoute: AuthRequestsRoute,
 }
 
 const AuthRouteWithChildren = AuthRoute._addFileChildren(AuthRouteChildren)
