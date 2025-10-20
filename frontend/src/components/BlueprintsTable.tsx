@@ -14,7 +14,6 @@ type BlueprintLineItem = BlueprintRequest["blueprints"][number];
 
 export interface BlueprintsTableProps {
   blueprints: BlueprintLineItem[];
-  getNameById: (id: number, fallback?: string) => string;
   emptyContent?: string;
   ariaLabel?: string;
   className?: string;
@@ -23,7 +22,7 @@ export interface BlueprintsTableProps {
 const BlueprintsTable = memo(
   ({
     blueprints,
-    getNameById,
+
     emptyContent = "No blueprints",
     ariaLabel = "Blueprints",
     className,
@@ -44,7 +43,7 @@ const BlueprintsTable = memo(
                 avatarProps={{
                   src: `https://images.evetech.net/types/${blueprint.type_id}/bpc`,
                 }}
-                name={getNameById(blueprint.type_id, blueprint.type_name)}
+                name={blueprint.type_name}
               />
             </TableCell>
             <TableCell>{blueprint.material_efficiency ?? 0}</TableCell>

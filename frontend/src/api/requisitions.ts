@@ -13,7 +13,7 @@ export interface BlueprintLineItem {
   material_efficiency?: number;
   time_efficiency?: number;
   quantity?: number;
-  type_name?: string;
+  type_name: string;
 }
 
 export interface BlueprintRequest {

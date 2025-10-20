@@ -16,7 +16,7 @@ import {
   useRequisitionsQuery,
   type BlueprintRequest,
 } from "../api/requisitions";
-import { useEsiNames } from "../api/esi";
+
 import { useAuth } from "../contexts/AuthContext";
 import RequestsTable from "../components/RequestsTable";
 import BlueprintsTable from "../components/BlueprintsTable";
@@ -210,23 +210,6 @@ function RouteComponent() {
 
     return items;
   }, [filteredRequisitions, sortDescriptor]);
-
-  const blueprintTypeIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const request of requisitions) {
-      for (const bp of request.blueprints) {
-        ids.add(bp.type_id);
-      }
-    }
-    return Array.from(ids);
-  }, [requisitions]);
-
-  const { names, isLoading: areNamesLoading } = useEsiNames(blueprintTypeIds);
-
-  const getNameById = useCallback(
-    (id: number, fallback?: string) => names.get(id) ?? fallback ?? "Unknown",
-    [names]
-  );
 
   const formatDate = useCallback((iso: string) => {
     const ts = Date.parse(iso);
@@ -511,7 +494,7 @@ function RouteComponent() {
 
         <RequestsTable
           error={error}
-          isLoading={isLoading || areNamesLoading}
+          isLoading={isLoading}
           items={sortedItems}
           selectedKey={selectedKey}
           selectedRequest={selectedRequest}
@@ -577,10 +560,7 @@ function RouteComponent() {
             </div>
           </div>
 
-          <BlueprintsTable
-            blueprints={selectedRequest.blueprints}
-            getNameById={getNameById}
-          />
+          <BlueprintsTable blueprints={selectedRequest.blueprints} />
         </div>
       )}
     </div>

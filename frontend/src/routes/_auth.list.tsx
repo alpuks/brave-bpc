@@ -180,6 +180,7 @@ function RouteComponent() {
     try {
       await createRequisition.mutateAsync({
         blueprints: selectedItems.map((item) => ({
+          type_name: item.type_name,
           type_id: item.type_id,
           runs: item.runs,
           material_efficiency: item.material_efficiency ?? 0,
@@ -214,9 +215,6 @@ function RouteComponent() {
     }));
   }, [selected, selectedItems]);
 
-  const getBlueprintName = (_id: number, fallback?: string) =>
-    fallback ?? "Unknown Item";
-
   return (
     <div className="flex gap-4">
       <div>
@@ -250,7 +248,6 @@ function RouteComponent() {
             ariaLabel="Selected items table"
             className="flex-1 h-full"
             blueprints={selectedBlueprints}
-            getNameById={getBlueprintName}
             emptyContent="No items selected"
           />
           <Button
