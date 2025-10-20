@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
 	"github.com/antihax/goesi/esi"
 	"github.com/bwmarrin/snowflake"
@@ -128,11 +127,9 @@ func main() {
 	chain := baseChain.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
 	mux.Handle("/", chain.HandleFunc(app.root))
 	mux.Handle("GET /metrics", chain.Handle(promhttp.Handler()))
-	mux.Handle("GET /login", chain.HandleFunc(app.login))
-	mux.Handle("GET /login/char", chain.HandleFunc(app.addCharToAccount))
-	mux.Handle("GET /login/scope", chain.HandleFunc(app.addScopeToAccount))
 	mux.Handle("GET /config", chain.HandleFunc(app.printConfig))
 
+	app.createAuthHandlers(mux, baseChain)
 	app.createApiHandlers(mux, baseChain)
 
 	go app.ticker(threadCtx)
@@ -192,46 +189,7 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(body))
 }
 
-// standard login
-func (app *app) login(w http.ResponseWriter, r *http.Request) {
-	logger := getLoggerFromContext(r.Context())
-	logger.Debug("login")
-	app.doLogin(w, r, nil, authTypeLogin)
-}
 
-func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
-	// check if already logged in
-	logger := getLoggerFromContext(r.Context())
-	logger.Debug("add char to account")
-	s, _ := app.sessionStore.Get(r, cookieSession)
-	if s.IsNew {
-		http.Error(w, "not logged in", http.StatusUnauthorized)
-		return
-	}
-	// add character to account
-	app.doLogin(w, r, nil, authTypeAddCharacter)
-}
-
-// director login
-func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
-	// check if already logged in
-	logger := getLoggerFromContext(r.Context())
-	logger.Debug("add scope to account")
-	s, _ := app.sessionStore.Get(r, cookieSession)
-	if s.IsNew {
-		http.Error(w, "not logged in", http.StatusUnauthorized)
-		return
-	}
-
-	// create rows with refresh token
-	app.doLogin(w, r, []string{
-		string(glue.EsiScope_AssetsReadCorporationAssets_v1),
-		string(glue.EsiScope_CorporationsReadBlueprints_v1),
-		string(glue.EsiScope_CorporationsReadDivisions_v1),
-		string(glue.EsiScope_IndustryReadCorporationJobs_v1),
-		string(glue.EsiScope_UniverseReadStructures_v1),
-	}, authTypeAddScopes)
-}
 
 // print out the app config data
 func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {

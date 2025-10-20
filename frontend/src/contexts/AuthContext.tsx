@@ -18,6 +18,7 @@ const AuthContext = createContext<AuthContext | null>(null);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
+  // TODO find way to check cookie validity against BE on first load
   const cookie = Cookies.get("brave-bpc");
 
   const authCookie = cookie ? JSON.parse(atob(cookie)) : null;
@@ -25,6 +26,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const [user, setUser] = useState<User | null>(authCookie);
 
   const logout = () => {
+    // TODO call BE for logout
     setUser(null);
     Cookies.remove("brave-bpc");
   };
