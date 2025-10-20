@@ -20,6 +20,14 @@ export default defineConfig({
         target: "http://localhost:2727",
         changeOrigin: true,
       },
+      "/session": {
+        target: "http://localhost:2727",
+        changeOrigin: true,
+      },
+      "/logout": {
+        target: "http://localhost:2727",
+        changeOrigin: true,
+      },
     },
   },
   ssr: {
