@@ -1,21 +1,15 @@
 "use client";
 
-import {
-  Table,
-  TableHeader,
-  TableRow,
-  TableBody,
-  TableCell,
-  TableColumn,
-  Chip,
-  Spinner,
-  User,
-  Snippet,
-  Button,
-  addToast,
-} from "@heroui/react";
+import { Button, addToast } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Selection, SortDescriptor } from "@react-types/shared";
 import {
   useRequisitionsQuery,
@@ -23,19 +17,46 @@ import {
 } from "../api/requisitions";
 import { useEsiNames } from "../api/esi";
 import { useAuth } from "../contexts/AuthContext";
+import RequestsTable from "../components/RequestsTable";
+import BlueprintsTable from "../components/BlueprintsTable";
 
 export const Route = createFileRoute("/_auth/requests")({
   component: RouteComponent,
 });
 
-const statusColorMap = {
-  open: "primary",
-  closed: "default",
-  completed: "success",
-  rejected: "danger",
-} as const;
+type ChipColor =
+  | "default"
+  | "primary"
+  | "secondary"
+  | "success"
+  | "warning"
+  | "danger";
 
-type Status = keyof typeof statusColorMap;
+type StatusMetadataEntry = {
+  value: number;
+  slug: string;
+  name: string;
+  color: ChipColor;
+};
+
+const statusMetadata: Record<number, StatusMetadataEntry> = {
+  0: { value: 0, slug: "open", name: "Open", color: "primary" },
+  1: { value: 1, slug: "canceled", name: "Canceled", color: "default" },
+  2: { value: 2, slug: "completed", name: "Completed", color: "success" },
+  3: { value: 3, slug: "rejected", name: "Rejected", color: "danger" },
+};
+
+const OPEN_STATUS_VALUE = 0;
+
+const statusMetadataBySlug: Record<string, StatusMetadataEntry> = {};
+for (const entry of Object.values(statusMetadata)) {
+  statusMetadataBySlug[entry.slug] = entry;
+}
+
+const statusFilterOptions = Object.values(statusMetadata).map((entry) => ({
+  value: entry.value,
+  label: entry.name,
+}));
 
 type RequisitionSortKey =
   | "id"
@@ -57,6 +78,37 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const LOCK_AUTH_THRESHOLD = 2;
 
+function resolveStatusMetadata(status?: string | number): StatusMetadataEntry {
+  if (status == null) {
+    return statusMetadata[OPEN_STATUS_VALUE];
+  }
+
+  if (typeof status === "number" && Number.isInteger(status)) {
+    return statusMetadata[status] ?? statusMetadata[OPEN_STATUS_VALUE];
+  }
+
+  const numericStatus = Number(status);
+  if (Number.isInteger(numericStatus)) {
+    const byNumber = statusMetadata[numericStatus];
+    if (byNumber) {
+      return byNumber;
+    }
+  }
+
+  if (typeof status === "string") {
+    const bySlug = statusMetadataBySlug[status.toLowerCase()];
+    if (bySlug) {
+      return bySlug;
+    }
+  }
+
+  return statusMetadata[OPEN_STATUS_VALUE];
+}
+
+function isOpenStatus(status?: string | number): boolean {
+  return resolveStatusMetadata(status).value === OPEN_STATUS_VALUE;
+}
+
 function RouteComponent() {
   const { user } = useAuth();
 
@@ -65,13 +117,15 @@ function RouteComponent() {
   }
 
   const { auth_level, character_id } = user;
+  const [statusFilter, setStatusFilter] = useState<number>(0);
+  const [characterFilter, setCharacterFilter] = useState<string>("");
 
   const {
     data: requisitions = [],
     isLoading,
     error,
     refetch,
-  } = useRequisitionsQuery();
+  } = useRequisitionsQuery(statusFilter);
 
   const [selectedKey, setSelectedKey] = useState<number | null>(null);
   const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
@@ -82,8 +136,28 @@ function RouteComponent() {
   const requiresLocking = auth_level >= LOCK_AUTH_THRESHOLD;
   const selectingRef = useRef(false);
 
+  const requestById = useMemo(() => {
+    const map = new Map<number, BlueprintRequest>();
+    for (const request of requisitions) {
+      map.set(request.id, request);
+    }
+    return map;
+  }, [requisitions]);
+
+  const filteredRequisitions = useMemo(() => {
+    const query = characterFilter.trim().toLowerCase();
+    if (query.length === 0) {
+      return requisitions;
+    }
+
+    return requisitions.filter((req) => {
+      const name = req.character_name?.toLowerCase() ?? "";
+      return name.includes(query);
+    });
+  }, [characterFilter, requisitions]);
+
   const sortedItems = useMemo<BlueprintRequest[]>(() => {
-    const items = [...requisitions];
+    const items = [...filteredRequisitions];
     const column =
       typeof sortDescriptor.column === "string"
         ? (sortDescriptor.column as RequisitionSortKey)
@@ -109,6 +183,7 @@ function RouteComponent() {
         case "character_id":
           return item[column];
         case "status":
+          return resolveStatusMetadata(item.status).value;
         case "updated_by":
         case "public_notes":
           return item[column] ?? "";
@@ -128,7 +203,7 @@ function RouteComponent() {
     });
 
     return items;
-  }, [requisitions, sortDescriptor]);
+  }, [filteredRequisitions, sortDescriptor]);
 
   const blueprintTypeIds = useMemo(() => {
     const ids = new Set<number>();
@@ -145,6 +220,21 @@ function RouteComponent() {
   const getNameById = useCallback(
     (id: number, fallback?: string) => names.get(id) ?? fallback ?? "Unknown",
     [names]
+  );
+
+  const formatDate = useCallback((iso: string) => {
+    const ts = Date.parse(iso);
+    return Number.isFinite(ts) ? dateTimeFormatter.format(ts) : "";
+  }, []);
+
+  const shouldLockRequest = useCallback(
+    (request?: BlueprintRequest | null) => {
+      if (!requiresLocking || !request) {
+        return false;
+      }
+      return isOpenStatus(request.status);
+    },
+    [requiresLocking]
   );
 
   const acquireLock = useCallback(
@@ -202,20 +292,26 @@ function RouteComponent() {
       if (selectingRef.current) return;
       selectingRef.current = true;
 
+      const request = requestById.get(key);
+      const lockable = shouldLockRequest(request);
+      const currentRequest =
+        selectedKey === null ? null : (requestById.get(selectedKey) ?? null);
+      const currentLockable = shouldLockRequest(currentRequest);
+
       try {
         if (selectedKey === key) {
-          if (requiresLocking) {
+          if (lockable) {
             await releaseLock(key).catch(() => undefined);
           }
           setSelectedKey(null);
           return;
         }
 
-        if (requiresLocking && selectedKey !== null) {
+        if (currentLockable && selectedKey !== null && selectedKey !== key) {
           return;
         }
 
-        if (requiresLocking) {
+        if (lockable) {
           await acquireLock(key).catch(() => undefined);
         }
         setSelectedKey(key);
@@ -223,13 +319,15 @@ function RouteComponent() {
         selectingRef.current = false;
       }
     },
-    [selectedKey, requiresLocking, acquireLock, releaseLock]
+    [selectedKey, requestById, shouldLockRequest, acquireLock, releaseLock]
   );
 
-  const selectedRequest = useMemo(
-    () => requisitions.find((req) => req.id === selectedKey) ?? null,
-    [requisitions, selectedKey]
-  );
+  const selectedRequest = useMemo(() => {
+    if (selectedKey === null) {
+      return null;
+    }
+    return requestById.get(selectedKey) ?? null;
+  }, [requestById, selectedKey]);
 
   const selectedKeys = useMemo<Selection>(() => {
     return selectedKey === null
@@ -238,7 +336,7 @@ function RouteComponent() {
   }, [selectedKey]);
 
   const handleSelectionChange = useCallback(
-    (keys: Selection) => {
+    (keys: Selection | "all") => {
       if (selectingRef.current) return;
       if (keys === "all") return;
       if (!(keys instanceof Set)) return;
@@ -254,27 +352,26 @@ function RouteComponent() {
         return;
       }
 
-      if (!requiresLocking) {
-        if (selectedKey !== nextKey) {
-          void toggleExpand(nextKey);
-        }
-        return;
-      }
-
-      if (selectedKey === null || selectedKey === nextKey) {
-        void toggleExpand(nextKey);
-      }
+      void toggleExpand(nextKey);
     },
-    [requiresLocking, selectedKey, toggleExpand]
+    [selectedKey, toggleExpand]
   );
 
   const handleView = useCallback(
     (id: number) => {
       if (selectingRef.current) return;
-      if (requiresLocking && selectedKey !== null && selectedKey !== id) return;
+      const currentRequest =
+        selectedKey === null ? null : (requestById.get(selectedKey) ?? null);
+      if (
+        currentRequest &&
+        selectedKey !== id &&
+        shouldLockRequest(currentRequest)
+      ) {
+        return;
+      }
       void toggleExpand(id);
     },
-    [requiresLocking, selectedKey, toggleExpand]
+    [requestById, selectedKey, shouldLockRequest, toggleExpand]
   );
 
   const handleRequestAction = useCallback(
@@ -292,23 +389,13 @@ function RouteComponent() {
         }
 
         addToast({
-          title:
-            action === "cancel"
-              ? "Cancelled"
-              : action === "complete"
-                ? "Completed"
-                : "Rejected",
-          description: `Successfully ${action}ed request ${requestId}`,
-          color:
-            action === "complete"
-              ? "success"
-              : action === "cancel"
-                ? "warning"
-                : "danger",
+          title: action.charAt(0).toUpperCase() + action.slice(1),
+          description: `Successfully updated request ${requestId}`,
+          color: "success",
         });
       } catch (err) {
         addToast({
-          title: `${action.charAt(0).toUpperCase()}${action.slice(1)} error`,
+          title: `Error`,
           description: `Failed to ${action} request ${requestId}: ${String(err)}`,
           color: "danger",
         });
@@ -323,141 +410,87 @@ function RouteComponent() {
     [refetch, requiresLocking, selectedKey]
   );
 
-  const renderStatus = (status?: string) => (
-    <Chip
-      className="capitalize gap-1 text-default-600 text-bold"
-      color={statusColorMap[(status as Status) ?? "open"]}
-      radius="sm"
-      size="lg"
-      variant="bordered"
-    >
-      {status || "Open"}
-    </Chip>
-  );
+  useEffect(() => {
+    setSelectedKey((current) => {
+      if (current === null) {
+        return current;
+      }
 
-  const renderDate = (iso: string) => {
-    const ts = Date.parse(iso);
-    return (
-      <span className="text-default-500">
-        {Number.isFinite(ts) ? dateTimeFormatter.format(ts) : ""}
-      </span>
-    );
-  };
+      const currentRequest = requestById.get(current);
+      if (shouldLockRequest(currentRequest)) {
+        void releaseLock(current).catch(() => undefined);
+      }
 
-  const renderExpandButton = (id: number) => {
-    const isSelected = selectedKey === id;
-
-    if (!requiresLocking) {
-      return (
-        <Button
-          disabled={isSelected}
-          onPress={() => handleView(id)}
-          size="sm"
-          variant="flat"
-        >
-          {isSelected ? "Viewing" : "View"}
-        </Button>
-      );
-    }
-
-    const somethingSelected = selectedKey !== null;
-
-    if (!somethingSelected) {
-      return (
-        <Button onPress={() => handleView(id)} size="sm" variant="flat">
-          View
-        </Button>
-      );
-    }
-
-    if (isSelected) {
-      return (
-        <Button disabled size="sm" variant="flat">
-          Viewing
-        </Button>
-      );
-    }
-
-    return (
-      <Button disabled size="sm" variant="flat">
-        View
-      </Button>
-    );
-  };
+      return null;
+    });
+  }, [
+    statusFilter,
+    characterFilter,
+    requestById,
+    shouldLockRequest,
+    releaseLock,
+  ]);
 
   return (
     <div className="flex w-full flex-row gap-4">
-      <Table
-        aria-label="Requests Table"
-        className="w-full"
-        isStriped
-        isVirtualized
-        onSelectionChange={handleSelectionChange}
-        onSortChange={setSortDescriptor}
-        selectedKeys={selectedKeys}
-        selectionMode="single"
-        sortDescriptor={sortDescriptor}
-      >
-        <TableHeader>
-          <TableColumn allowsSorting key="id">
-            ID
-          </TableColumn>
-          <TableColumn key="requester">Requester</TableColumn>
-          <TableColumn allowsSorting key="status">
-            Status
-          </TableColumn>
-          <TableColumn allowsSorting key="created_at">
-            Created At
-          </TableColumn>
-          <TableColumn allowsSorting key="updated_at">
-            Updated At
-          </TableColumn>
-          <TableColumn key="updated_by">Updated By</TableColumn>
-          <TableColumn key="public_notes">Public Notes</TableColumn>
-          <TableColumn key="actions">Actions</TableColumn>
-        </TableHeader>
+      <div className="flex w-full flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label
+              className="text-sm font-medium text-default-600"
+              htmlFor="status-filter"
+            >
+              Status
+            </label>
+            <select
+              id="status-filter"
+              className="rounded-medium border border-default-300 bg-content1 px-3 py-2 text-sm text-default-600"
+              value={String(statusFilter)}
+              onChange={(event) => setStatusFilter(Number(event.target.value))}
+            >
+              {statusFilterOptions.map((option) => (
+                <option key={option.value} value={String(option.value)}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <TableBody
-          emptyContent={error ? "Failed to load" : "No requests"}
+          <div className="flex items-center gap-2">
+            <label
+              className="text-sm font-medium text-default-600"
+              htmlFor="character-filter"
+            >
+              Character
+            </label>
+            <input
+              id="character-filter"
+              autoComplete="off"
+              className="rounded-medium border border-default-300 bg-content1 px-3 py-2 text-sm text-default-600"
+              onChange={(event) => setCharacterFilter(event.target.value)}
+              placeholder="Filter by character"
+              type="text"
+              value={characterFilter}
+            />
+          </div>
+        </div>
+
+        <RequestsTable
+          error={error}
           isLoading={isLoading || areNamesLoading}
           items={sortedItems}
-          loadingContent={<Spinner label="Loading..." />}
-        >
-          {(item: BlueprintRequest) => {
-            const characterName = item.character_name || "Unknown";
-            return (
-              <TableRow key={String(item.id)}>
-                <TableCell>{item.id}</TableCell>
-                <TableCell>
-                  <User
-                    avatarProps={{
-                      src: `https://images.evetech.net/characters/${item.character_id}/portrait`,
-                    }}
-                    className="text-default-600"
-                    id={item.character_id.toString()}
-                    name={
-                      <Snippet
-                        hideSymbol
-                        key={`char-${item.character_id}-${characterName}`}
-                        radius="none"
-                        size="sm"
-                      >
-                        {characterName}
-                      </Snippet>
-                    }
-                  />
-                </TableCell>
-                <TableCell>{renderStatus(item.status)}</TableCell>
-                <TableCell>{renderDate(item.created_at)}</TableCell>
-                <TableCell>{renderDate(item.updated_at)}</TableCell>
-                <TableCell>{item.updated_by || "N/A"}</TableCell>
-                <TableCell>{item.public_notes}</TableCell>
-                <TableCell>{renderExpandButton(item.id)}</TableCell>
-              </TableRow>
-            );
-          }}
-        </TableBody>
-      </Table>
+          selectedKey={selectedKey}
+          selectedRequest={selectedRequest}
+          shouldLockRequest={shouldLockRequest}
+          resolveStatusMetadata={resolveStatusMetadata}
+          formatDate={formatDate}
+          onView={handleView}
+          onSelectionChange={handleSelectionChange}
+          onSortChange={setSortDescriptor}
+          selectedKeys={selectedKeys}
+          sortDescriptor={sortDescriptor}
+        />
+      </div>
 
       {selectedRequest && (
         <div className="rounded-medium border p-4">
@@ -466,39 +499,41 @@ function RouteComponent() {
               Request #{selectedRequest.id} details
             </h3>
             <div className="flex gap-2">
-              {selectedRequest.character_id === character_id && (
-                <Button
-                  color="warning"
-                  onPress={() =>
-                    handleRequestAction("cancel", selectedRequest.id)
-                  }
-                  variant="ghost"
-                >
-                  Cancel
-                </Button>
-              )}
-              {auth_level >= LOCK_AUTH_THRESHOLD && (
-                <Fragment>
+              {selectedRequest.character_id === character_id &&
+                isOpenStatus(selectedRequest.status) && (
                   <Button
-                    color="success"
+                    color="warning"
                     onPress={() =>
-                      handleRequestAction("complete", selectedRequest.id)
+                      handleRequestAction("cancel", selectedRequest.id)
                     }
                     variant="ghost"
                   >
-                    Complete
+                    Cancel
                   </Button>
-                  <Button
-                    color="danger"
-                    onPress={() =>
-                      handleRequestAction("reject", selectedRequest.id)
-                    }
-                    variant="ghost"
-                  >
-                    Reject
-                  </Button>
-                </Fragment>
-              )}
+                )}
+              {auth_level >= LOCK_AUTH_THRESHOLD &&
+                isOpenStatus(selectedRequest.status) && (
+                  <Fragment>
+                    <Button
+                      color="success"
+                      onPress={() =>
+                        handleRequestAction("complete", selectedRequest.id)
+                      }
+                      variant="ghost"
+                    >
+                      Complete
+                    </Button>
+                    <Button
+                      color="danger"
+                      onPress={() =>
+                        handleRequestAction("reject", selectedRequest.id)
+                      }
+                      variant="ghost"
+                    >
+                      Reject
+                    </Button>
+                  </Fragment>
+                )}
               <Button
                 onPress={() => void toggleExpand(selectedRequest.id)}
                 variant="flat"
@@ -508,33 +543,10 @@ function RouteComponent() {
             </div>
           </div>
 
-          <Table aria-label="Blueprints">
-            <TableHeader>
-              <TableColumn key="bp">Blueprint</TableColumn>
-              <TableColumn key="me">ME</TableColumn>
-              <TableColumn key="te">TE</TableColumn>
-              <TableColumn key="runs">Runs</TableColumn>
-              <TableColumn key="qty">Quantity</TableColumn>
-            </TableHeader>
-            <TableBody emptyContent="No blueprints">
-              {selectedRequest.blueprints.map((blueprint) => (
-                <TableRow key={blueprint.type_id}>
-                  <TableCell>
-                    <User
-                      avatarProps={{
-                        src: `https://images.evetech.net/types/${blueprint.type_id}/bpc`,
-                      }}
-                      name={getNameById(blueprint.type_id, blueprint.type_name)}
-                    />
-                  </TableCell>
-                  <TableCell>{blueprint.material_efficiency ?? 0}</TableCell>
-                  <TableCell>{blueprint.time_efficiency ?? 0}</TableCell>
-                  <TableCell>{blueprint.runs}</TableCell>
-                  <TableCell>{blueprint.quantity ?? 1}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <BlueprintsTable
+            blueprints={selectedRequest.blueprints}
+            getNameById={getNameById}
+          />
         </div>
       )}
     </div>

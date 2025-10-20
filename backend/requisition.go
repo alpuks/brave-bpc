@@ -8,6 +8,7 @@ type requestedBlueprint struct {
 	Runs               int16  `json:"runs,omitempty"`
 	MaterialEfficiency int8   `json:"me,omitempty"`
 	TimeEfficiency     int8   `json:"te,omitempty"`
+	Quantity           int32  `json:"quantity,omitempty"`
 	Any                bool   `json:"any,omitempty"`
 }
 

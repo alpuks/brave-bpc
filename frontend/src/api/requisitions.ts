@@ -20,7 +20,7 @@ export interface BlueprintRequest {
   id: number;
   character_id: number;
   character_name: string;
-  status?: string;
+  status?: number | string;
   created_at: string;
   updated_at: string;
   updated_by?: string;
@@ -42,8 +42,25 @@ export interface CreateRequisitionPayload {
 
 export const requisitionsQueryKey = ["requisitions"] as const;
 
-export async function fetchRequisitions(signal?: AbortSignal) {
-  const response = await fetch("/api/requisition", {
+interface FetchRequisitionsOptions {
+  signal?: AbortSignal;
+  status?: number;
+}
+
+function buildRequisitionsUrl(status?: number) {
+  const search = new URLSearchParams();
+  if (status != null) {
+    search.set("status", String(status));
+  }
+  const suffix = search.toString();
+  return suffix.length > 0 ? `/api/requisition?${suffix}` : "/api/requisition";
+}
+
+export async function fetchRequisitions({
+  signal,
+  status,
+}: FetchRequisitionsOptions = {}) {
+  const response = await fetch(buildRequisitionsUrl(status), {
     credentials: "include",
     signal,
   });
@@ -56,10 +73,15 @@ export async function fetchRequisitions(signal?: AbortSignal) {
   return data;
 }
 
-export function useRequisitionsQuery(): UseQueryResult<BlueprintRequest[]> {
+export function useRequisitionsQuery(
+  status?: number
+): UseQueryResult<BlueprintRequest[]> {
   return useQuery({
-    queryKey: requisitionsQueryKey,
-    queryFn: ({ signal }) => fetchRequisitions(signal),
+    queryKey:
+      status == null
+        ? requisitionsQueryKey
+        : ([...requisitionsQueryKey, { status }] as const),
+    queryFn: ({ signal }) => fetchRequisitions({ signal, status }),
   });
 }
 
