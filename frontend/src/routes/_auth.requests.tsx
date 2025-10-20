@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Table,
   TableHeader,
@@ -13,44 +15,18 @@ import {
   addToast,
 } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import type { Selection, SortDescriptor } from "@react-types/shared";
 import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { AsyncListData, useAsyncList } from "@react-stately/data";
-import type { Selection } from "@react-types/shared";
+  useRequisitionsQuery,
+  type BlueprintRequest,
+} from "../api/requisitions";
+import { useEsiNames } from "../api/esi";
+import { useAuth } from "../contexts/AuthContext";
 
 export const Route = createFileRoute("/_auth/requests")({
   component: RouteComponent,
 });
-
-interface BlueprintRequest {
-  id: number;
-  character_id: number;
-  character_name: string;
-  status?: string;
-  created_at: string;
-  updated_at: string;
-  updated_by?: string;
-  public_notes?: string;
-  blueprints: Array<{
-    type_id: number;
-    runs: number;
-    material_efficiency?: number;
-    time_efficiency?: number;
-    quantity?: number;
-    type_name?: string;
-  }>;
-}
-interface EsiResponse {
-  category: string;
-  id: number;
-  name: string;
-}
 
 const statusColorMap = {
   open: "primary",
@@ -58,7 +34,17 @@ const statusColorMap = {
   completed: "success",
   rejected: "danger",
 } as const;
+
 type Status = keyof typeof statusColorMap;
+
+type RequisitionSortKey =
+  | "id"
+  | "character_id"
+  | "status"
+  | "created_at"
+  | "updated_at"
+  | "updated_by"
+  | "public_notes";
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   year: "numeric",
@@ -69,30 +55,105 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour12: false,
 });
 
-const LOCK_AUTH_THRESHOLD = 2; // TODO move to config
+const LOCK_AUTH_THRESHOLD = 2;
 
 function RouteComponent() {
+  const { user } = useAuth();
+
+  if (!user) {
+    throw new Error("Auth guard did not provide a user");
+  }
+
+  const { auth_level, character_id } = user;
+
   const {
-    auth: {
-      // @ts-expect-error auth is checked above level in route
-      user: { auth_level, character_id },
-    },
-  } = Route.useRouteContext();
+    data: requisitions = [],
+    isLoading,
+    error,
+    refetch,
+  } = useRequisitionsQuery();
 
   const [selectedKey, setSelectedKey] = useState<number | null>(null);
-  const [idMap, setIdMap] = useState<Map<number, string>>(new Map());
+  const [sortDescriptor, setSortDescriptor] = useState<SortDescriptor>({
+    column: "updated_at",
+    direction: "descending",
+  });
+
   const requiresLocking = auth_level >= LOCK_AUTH_THRESHOLD;
+  const selectingRef = useRef(false);
+
+  const sortedItems = useMemo<BlueprintRequest[]>(() => {
+    const items = [...requisitions];
+    const column =
+      typeof sortDescriptor.column === "string"
+        ? (sortDescriptor.column as RequisitionSortKey)
+        : undefined;
+
+    if (!column) {
+      return items;
+    }
+
+    const collator = new Intl.Collator(undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+
+    const getValue = (item: BlueprintRequest) => {
+      switch (column) {
+        case "created_at":
+        case "updated_at": {
+          const timestamp = Date.parse(item[column]);
+          return Number.isFinite(timestamp) ? timestamp : 0;
+        }
+        case "id":
+        case "character_id":
+          return item[column];
+        case "status":
+        case "updated_by":
+        case "public_notes":
+          return item[column] ?? "";
+        default:
+          return "";
+      }
+    };
+
+    items.sort((a, b) => {
+      const va = getValue(a);
+      const vb = getValue(b);
+      const cmp =
+        typeof va === "number" && typeof vb === "number"
+          ? va - vb
+          : collator.compare(String(va), String(vb));
+      return sortDescriptor.direction === "descending" ? -cmp : cmp;
+    });
+
+    return items;
+  }, [requisitions, sortDescriptor]);
+
+  const blueprintTypeIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const request of requisitions) {
+      for (const bp of request.blueprints) {
+        ids.add(bp.type_id);
+      }
+    }
+    return Array.from(ids);
+  }, [requisitions]);
+
+  const { names, isLoading: areNamesLoading } = useEsiNames(blueprintTypeIds);
+
+  const getNameById = useCallback(
+    (id: number, fallback?: string) => names.get(id) ?? fallback ?? "Unknown",
+    [names]
+  );
 
   const acquireLock = useCallback(
     async (id: number) => {
-      if (!requiresLocking) return null;
-      console.debug(`acquireLock: requesting lock for ${id}`);
+      if (!requiresLocking) return;
       try {
         const response = await fetch(`/api/requisition/${id}/lock`, {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          credentials: "include",
         });
         if (!response.ok) {
           throw new Error(`Failed to acquire lock (${response.status})`);
@@ -100,17 +161,13 @@ function RouteComponent() {
       } catch (err) {
         addToast({
           title: "Lock Error",
-          description: `Failed to acquire lock for request ${id}: ${String(err)}`,
+          description: `Failed to acquire lock for request ${id}: ${String(
+            err
+          )}`,
           color: "danger",
         });
-        return;
+        throw err;
       }
-
-      console.debug(`acquireLock: lock acquired for ${id}`);
-      return {
-        owner: "you",
-        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      };
     },
     [requiresLocking]
   );
@@ -118,13 +175,10 @@ function RouteComponent() {
   const releaseLock = useCallback(
     async (id: number) => {
       if (!requiresLocking) return;
-      console.log(`releaseLock: releasing lock for ${id}`);
       try {
         const response = await fetch(`/api/requisition/${id}/unlock`, {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          credentials: "include",
         });
         if (!response.ok) {
           throw new Error(`Failed to release lock (${response.status})`);
@@ -132,27 +186,26 @@ function RouteComponent() {
       } catch (err) {
         addToast({
           title: "Lock Error",
-          description: `Failed to release lock for request ${id}: ${String(err)}`,
+          description: `Failed to release lock for request ${id}: ${String(
+            err
+          )}`,
           color: "danger",
         });
-        return;
+        throw err;
       }
-
-      console.log(`releaseLock: lock released for ${id}`);
     },
     [requiresLocking]
   );
-
-  const selectingRef = useRef(false);
 
   const toggleExpand = useCallback(
     async (key: number) => {
       if (selectingRef.current) return;
       selectingRef.current = true;
+
       try {
         if (selectedKey === key) {
           if (requiresLocking) {
-            await releaseLock(key).catch(() => {});
+            await releaseLock(key).catch(() => undefined);
           }
           setSelectedKey(null);
           return;
@@ -163,11 +216,7 @@ function RouteComponent() {
         }
 
         if (requiresLocking) {
-          try {
-            await acquireLock(key);
-          } catch (err) {
-            console.warn("Lock failed, opening read-only", err);
-          }
+          await acquireLock(key).catch(() => undefined);
         }
         setSelectedKey(key);
       } finally {
@@ -177,132 +226,10 @@ function RouteComponent() {
     [selectedKey, requiresLocking, acquireLock, releaseLock]
   );
 
-  const asyncList: AsyncListData<BlueprintRequest> = useAsyncList({
-    load: async ({ signal }) => {
-      const response = await fetch("/api/requisition", { signal });
-
-      if (!response.ok) throw new Error(`Failed to load (${response.status})`);
-      const data = await response.json();
-
-      return { items: data };
-    },
-    sort: async ({ items, sortDescriptor }) => {
-      const { direction } = sortDescriptor;
-      const column =
-        typeof sortDescriptor.column === "string"
-          ? sortDescriptor.column
-          : undefined;
-
-      if (!column) return { items };
-
-      const collator = new Intl.Collator(undefined, {
-        numeric: true,
-        sensitivity: "base",
-      });
-
-      const getValue = (item: BlueprintRequest) => {
-        switch (column) {
-          case "created_at": {
-            const timestamp = Date.parse(item.created_at);
-            return Number.isFinite(timestamp) ? timestamp : 0;
-          }
-          case "updated_at": {
-            const timestamp = Date.parse(item.updated_at);
-            return Number.isFinite(timestamp) ? timestamp : 0;
-          }
-          case "id":
-            return item.id;
-          case "character_id":
-            return item.character_id;
-          case "status":
-            return item.status ?? "";
-          case "updated_by":
-            return item.updated_by ?? "";
-          case "public_notes":
-            return item.public_notes ?? "";
-          default:
-            return "";
-        }
-      };
-
-      const sorted = [...items].sort((a, b) => {
-        const va = getValue(a);
-        const vb = getValue(b);
-        const cmp =
-          typeof va === "number" && typeof vb === "number"
-            ? va - vb
-            : collator.compare(String(va), String(vb));
-        return direction === "descending" ? -cmp : cmp;
-      });
-
-      return { items: sorted };
-    },
-  });
-
-  const neededIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const item of asyncList.items) {
-      ids.add(item.character_id);
-      for (const bp of item.blueprints) ids.add(bp.type_id);
-    }
-    return ids;
-  }, [asyncList.items]);
-
-  useEffect(() => {
-    const missing = Array.from(neededIds).filter((id) => !idMap.has(id));
-    if (!missing.length) return;
-
-    const ac = new AbortController();
-    const chunkSize = 1000;
-    const chunks: number[][] = [];
-    for (let i = 0; i < missing.length; i += chunkSize) {
-      chunks.push(missing.slice(i, i + chunkSize));
-    }
-
-    (async () => {
-      const results = await Promise.all(
-        chunks.map((body) =>
-          fetch("https://esi.evetech.net/universe/names", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify(body),
-            signal: ac.signal,
-          }).then((r) => {
-            if (!r.ok) throw new Error(`names lookup failed (${r.status})`);
-            return r.json() as Promise<EsiResponse[]>;
-          })
-        )
-      );
-
-      setIdMap((prev) => {
-        const next = new Map(prev);
-        for (const res of results.flat()) {
-          next.set(res.id, res.name);
-        }
-        return next;
-      });
-    })().catch(() => {
-      if (ac.signal.aborted) return;
-    });
-
-    return () => ac.abort();
-  }, [neededIds, idMap]);
-
-  const getNameById = useCallback(
-    (id: number) => idMap.get(id) ?? "Unknown",
-    [idMap]
-  );
-
   const selectedRequest = useMemo(
-    () => asyncList.items.find((i) => i.id === selectedKey) ?? null,
-    [asyncList.items, selectedKey]
+    () => requisitions.find((req) => req.id === selectedKey) ?? null,
+    [requisitions, selectedKey]
   );
-
-  // Always clone the array so virtualized table rows receive new object references.
-  const tableItems = asyncList.items.map((item) => ({ ...item }));
 
   const selectedKeys = useMemo<Selection>(() => {
     return selectedKey === null
@@ -328,14 +255,15 @@ function RouteComponent() {
       }
 
       if (!requiresLocking) {
-        void toggleExpand(nextKey);
+        if (selectedKey !== nextKey) {
+          void toggleExpand(nextKey);
+        }
         return;
       }
 
       if (selectedKey === null || selectedKey === nextKey) {
         void toggleExpand(nextKey);
       }
-      // otherwise (different row while locked) ignore
     },
     [requiresLocking, selectedKey, toggleExpand]
   );
@@ -349,13 +277,59 @@ function RouteComponent() {
     [requiresLocking, selectedKey, toggleExpand]
   );
 
+  const handleRequestAction = useCallback(
+    async (action: "cancel" | "complete" | "reject", requestId: number) => {
+      try {
+        const response = await fetch(
+          `/api/requisition/${requestId}/${action}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+          }
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to ${action} request (${response.status})`);
+        }
+
+        addToast({
+          title:
+            action === "cancel"
+              ? "Cancelled"
+              : action === "complete"
+                ? "Completed"
+                : "Rejected",
+          description: `Successfully ${action}ed request ${requestId}`,
+          color:
+            action === "complete"
+              ? "success"
+              : action === "cancel"
+                ? "warning"
+                : "danger",
+        });
+      } catch (err) {
+        addToast({
+          title: `${action.charAt(0).toUpperCase()}${action.slice(1)} error`,
+          description: `Failed to ${action} request ${requestId}: ${String(err)}`,
+          color: "danger",
+        });
+        return;
+      }
+
+      await refetch();
+      if (requiresLocking && selectedKey === requestId) {
+        setSelectedKey(null);
+      }
+    },
+    [refetch, requiresLocking, selectedKey]
+  );
+
   const renderStatus = (status?: string) => (
     <Chip
       className="capitalize gap-1 text-default-600 text-bold"
       color={statusColorMap[(status as Status) ?? "open"]}
+      radius="sm"
       size="lg"
       variant="bordered"
-      radius="sm"
     >
       {status || "Open"}
     </Chip>
@@ -365,7 +339,7 @@ function RouteComponent() {
     const ts = Date.parse(iso);
     return (
       <span className="text-default-500">
-        {Number.isFinite(ts) ? dateTimeFormatter.format(ts) : "—"}
+        {Number.isFinite(ts) ? dateTimeFormatter.format(ts) : ""}
       </span>
     );
   };
@@ -376,10 +350,10 @@ function RouteComponent() {
     if (!requiresLocking) {
       return (
         <Button
-          onPress={() => handleView(id)}
-          variant="flat"
-          size="sm"
           disabled={isSelected}
+          onPress={() => handleView(id)}
+          size="sm"
+          variant="flat"
         >
           {isSelected ? "Viewing" : "View"}
         </Button>
@@ -390,7 +364,7 @@ function RouteComponent() {
 
     if (!somethingSelected) {
       return (
-        <Button onPress={() => handleView(id)} variant="flat" size="sm">
+        <Button onPress={() => handleView(id)} size="sm" variant="flat">
           View
         </Button>
       );
@@ -398,14 +372,14 @@ function RouteComponent() {
 
     if (isSelected) {
       return (
-        <Button variant="flat" size="sm" disabled>
+        <Button disabled size="sm" variant="flat">
           Viewing
         </Button>
       );
     }
 
     return (
-      <Button variant="flat" size="sm" disabled>
+      <Button disabled size="sm" variant="flat">
         View
       </Button>
     );
@@ -415,21 +389,21 @@ function RouteComponent() {
     <div className="flex w-full flex-row gap-4">
       <Table
         aria-label="Requests Table"
-        sortDescriptor={asyncList.sortDescriptor}
-        onSortChange={asyncList.sort}
         className="w-full"
         isStriped
         isVirtualized
-        selectionMode="single"
-        selectedKeys={selectedKeys}
         onSelectionChange={handleSelectionChange}
+        onSortChange={setSortDescriptor}
+        selectedKeys={selectedKeys}
+        selectionMode="single"
+        sortDescriptor={sortDescriptor}
       >
         <TableHeader>
-          <TableColumn key="id" allowsSorting>
+          <TableColumn allowsSorting key="id">
             ID
           </TableColumn>
           <TableColumn key="requester">Requester</TableColumn>
-          <TableColumn key="status" allowsSorting>
+          <TableColumn allowsSorting key="status">
             Status
           </TableColumn>
           <TableColumn allowsSorting key="created_at">
@@ -444,34 +418,33 @@ function RouteComponent() {
         </TableHeader>
 
         <TableBody
-          items={tableItems}
-          isLoading={asyncList.loadingState === "loading"}
+          emptyContent={error ? "Failed to load" : "No requests"}
+          isLoading={isLoading || areNamesLoading}
+          items={sortedItems}
           loadingContent={<Spinner label="Loading..." />}
-          emptyContent={asyncList.error ? "Failed to load" : "No requests"}
         >
-          {(item) => {
-            // include selectedKey in the row key to force re-render when selection changes
-
+          {(item: BlueprintRequest) => {
+            const characterName = item.character_name || "Unknown";
             return (
               <TableRow key={String(item.id)}>
                 <TableCell>{item.id}</TableCell>
                 <TableCell>
                   <User
-                    id={item.character_id.toString()}
                     avatarProps={{
                       src: `https://images.evetech.net/characters/${item.character_id}/portrait`,
                     }}
+                    className="text-default-600"
+                    id={item.character_id.toString()}
                     name={
                       <Snippet
-                        key={`char-${item.character_id}-${item.character_name}`}
                         hideSymbol
-                        size="sm"
+                        key={`char-${item.character_id}-${characterName}`}
                         radius="none"
+                        size="sm"
                       >
-                        {item.character_name}
+                        {characterName}
                       </Snippet>
                     }
-                    className="text-default-600"
                   />
                 </TableCell>
                 <TableCell>{renderStatus(item.status)}</TableCell>
@@ -487,8 +460,6 @@ function RouteComponent() {
       </Table>
 
       {selectedRequest && (
-        // TODO handle clicks on buttons - Locking for admins on view
-        // TODO refactor to separate component
         <div className="rounded-medium border p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-medium font-semibold">
@@ -497,44 +468,32 @@ function RouteComponent() {
             <div className="flex gap-2">
               {selectedRequest.character_id === character_id && (
                 <Button
-                  variant="ghost"
-                  color="danger"
+                  color="warning"
                   onPress={() =>
-                    handleRequestButtonClick(
-                      "cancel",
-                      selectedRequest.id,
-                      asyncList
-                    )
+                    handleRequestAction("cancel", selectedRequest.id)
                   }
+                  variant="ghost"
                 >
                   Cancel
                 </Button>
               )}
-              {auth_level >= 2 && (
+              {auth_level >= LOCK_AUTH_THRESHOLD && (
                 <Fragment>
                   <Button
-                    variant="ghost"
                     color="success"
                     onPress={() =>
-                      handleRequestButtonClick(
-                        "complete",
-                        selectedRequest.id,
-                        asyncList
-                      )
+                      handleRequestAction("complete", selectedRequest.id)
                     }
+                    variant="ghost"
                   >
                     Complete
                   </Button>
                   <Button
-                    variant="ghost"
                     color="danger"
                     onPress={() =>
-                      handleRequestButtonClick(
-                        "reject",
-                        selectedRequest.id,
-                        asyncList
-                      )
+                      handleRequestAction("reject", selectedRequest.id)
                     }
+                    variant="ghost"
                   >
                     Reject
                   </Button>
@@ -565,13 +524,13 @@ function RouteComponent() {
                       avatarProps={{
                         src: `https://images.evetech.net/types/${blueprint.type_id}/bpc`,
                       }}
-                      name={getNameById(blueprint.type_id)}
+                      name={getNameById(blueprint.type_id, blueprint.type_name)}
                     />
                   </TableCell>
-                  <TableCell>{blueprint?.material_efficiency ?? 0}</TableCell>
-                  <TableCell>{blueprint?.time_efficiency ?? 0}</TableCell>
+                  <TableCell>{blueprint.material_efficiency ?? 0}</TableCell>
+                  <TableCell>{blueprint.time_efficiency ?? 0}</TableCell>
                   <TableCell>{blueprint.runs}</TableCell>
-                  <TableCell>{blueprint?.quantity ?? 1}</TableCell>
+                  <TableCell>{blueprint.quantity ?? 1}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -580,92 +539,6 @@ function RouteComponent() {
       )}
     </div>
   );
-}
-
-async function handleRequestButtonClick(
-  action: string,
-  requestId: number,
-  itemList: AsyncListData<BlueprintRequest>
-) {
-  switch (action) {
-    case "cancel":
-      // Handle cancel action
-      try {
-        const response = await fetch(`/api/requisition/${requestId}/cancel`, {
-          method: "PATCH",
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to cancel request${response.status}`);
-        }
-        addToast({
-          title: "Cancelled",
-          description: `Successfully cancelled request ${requestId}`,
-          color: "success",
-        });
-      } catch (err) {
-        console.error(err);
-        addToast({
-          title: "Cancel error",
-          description: `Failed to cancel request ${requestId}`,
-          color: "danger",
-        });
-      }
-
-      break;
-    case "complete":
-      // Handle complete action
-      try {
-        const response = await fetch(`/api/requisition/${requestId}/complete`, {
-          method: "PATCH",
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to cancel request${response.status}`);
-        }
-
-        addToast({
-          title: "Completed",
-          description: `Successfully completed request ${requestId}`,
-          color: "success",
-        });
-      } catch (err) {
-        console.error(err);
-        addToast({
-          title: "Complete error",
-          description: `Failed to complete request ${requestId}`,
-          color: "danger",
-        });
-      }
-
-      break;
-    case "reject":
-      // Handle reject action
-      try {
-        const response = await fetch(`/api/requisition/${requestId}/reject`, {
-          method: "PATCH",
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to cancel request${response.status}`);
-        }
-        addToast({
-          title: "Rejected",
-          description: `Successfully rejected request ${requestId}`,
-          color: "success",
-        });
-      } catch (err) {
-        console.error(err);
-        addToast({
-          title: "Reject error",
-          description: `Failed to reject request ${requestId}`,
-          color: "danger",
-        });
-      }
-
-      break;
-    default:
-      break;
-  }
-
-  itemList.reload();
 }
 
 export default RouteComponent;

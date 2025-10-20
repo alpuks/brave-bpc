@@ -1,6 +1,6 @@
 "use client";
 import { createFileRoute } from "@tanstack/react-router";
-import { SetStateAction, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   Table,
   TableHeader,
@@ -14,119 +14,63 @@ import {
   NumberInput,
   Button,
   addToast,
+  Spinner,
 } from "@heroui/react";
+import {
+  useBlueprintsQuery,
+  type Blueprint,
+  type BlueprintGroup,
+} from "../api/blueprints";
+import { useCreateRequisitionMutation } from "../api/requisitions";
 
 export const Route = createFileRoute("/_auth/list")({
   component: RouteComponent,
 });
 
-export interface Blueprint {
-  quantity: number;
-  runs: number;
-  type_id: number;
-  material_efficiency?: number;
-  time_efficiency?: number;
-  key: string;
-}
-interface BlueprintApiResponse {
-  type_name: string;
-  blueprints: Blueprint[];
-}
-//TODO load from config
 const MAX_TOTAL = 10;
 
-function RouteComponent() {
-  const [blueprints, setBlueprints] = useState(
-    new Array<BlueprintApiResponse>()
-  );
+type SelectedState = Record<string, { checked: boolean; value: number }>;
+type BlueprintWithName = Blueprint & { type_name: string };
 
-  useEffect(() => {
-    try {
-      fetchBlueprints(setBlueprints);
-    } catch (e: unknown) {
-      addToast({
-        title: "Error",
-        description: "Failed to load blueprints: " + (e as Error).message,
-        color: "danger",
-      });
-    }
-  }, []);
+function RouteComponent() {
+  const { data: blueprintGroups = [], isLoading, error } = useBlueprintsQuery();
+  const createRequisition = useCreateRequisitionMutation();
 
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<keyof Blueprint | "name">("name");
   const [sortAsc, setSortAsc] = useState(true);
+  const [selected, setSelected] = useState<SelectedState>({});
 
-  const [selected, setSelected] = useState<
-    Record<string, { checked: boolean; value: number }>
-  >({});
+  useEffect(() => {
+    if (!error) return;
+    addToast({
+      title: "Error",
+      description:
+        error instanceof Error
+          ? `Failed to load blueprints: ${error.message}`
+          : "Failed to load blueprints.",
+      color: "danger",
+    });
+  }, [error]);
 
-  const getTotal = (state = selected) =>
+  const getTotal = (state: SelectedState = selected) =>
     Object.values(state)
-      .filter((v) => v.checked)
-      .reduce((sum, v) => sum + v.value, 0);
+      .filter((entry) => entry.checked)
+      .reduce((sum, entry) => sum + entry.value, 0);
 
-  const handleCheck = (key: string, checked: boolean) => {
-    setSelected((prev) => {
-      const current = prev[key]?.value ?? 1;
-      const newState = {
-        ...prev,
-        [key]: {
-          checked,
-          value: current,
-        },
-      };
-
-      // if unchecked, fine; if checked, enforce overall max
-      if (checked && getTotal(newState) > MAX_TOTAL) {
-        addToast({
-          title: "Selection limit exceeded",
-          description:
-            "You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
-          color: "danger",
-        });
-        return prev; // reject change
-      }
-      return newState;
-    });
-  };
-  const handleValueChange = (item: Blueprint, value: number) => {
-    setSelected((prev) => {
-      // clamp to row max
-      // let clamped = Math.min(value, item.maxCount);
-      // if (clamped < 1) clamped = 1;
-
-      const newState = {
-        ...prev,
-        [item.key]: {
-          checked: true, // auto-check if typing
-          value: value,
-        },
-      };
-
-      // enforce global max
-      if (getTotal(newState) > MAX_TOTAL) {
-        addToast({
-          title: "Selection limit exceeded",
-          description:
-            "You cannot exceed the overall limit of " + MAX_TOTAL + " BPCs.",
-          color: "danger",
-        });
-
-        return prev; // reject change
-      }
-
-      return newState;
-    });
-  };
-  const selectedItems = blueprints
-    .flatMap((group) =>
+  const flattenedBlueprints = useMemo<BlueprintWithName[]>(() => {
+    return blueprintGroups.flatMap((group) =>
       group.blueprints.map((blueprint) => ({
         ...blueprint,
         type_name: group.type_name,
       }))
-    )
-    .filter((item) => selected[item.key]?.checked);
+    );
+  }, [blueprintGroups]);
+
+  const selectedItems = useMemo(() => {
+    return flattenedBlueprints.filter((item) => selected[item.key]?.checked);
+  }, [flattenedBlueprints, selected]);
 
   const toggleExpand = (groupId: string) => {
     setExpandedGroups((prev) => {
@@ -142,35 +86,129 @@ function RouteComponent() {
 
   const handleSort = (key: keyof Blueprint | "name") => {
     if (key === sortKey) {
-      setSortAsc(!sortAsc);
+      setSortAsc((prev) => !prev);
     } else {
       setSortKey(key);
       setSortAsc(true);
     }
   };
 
-  const filteredGroups = useMemo(() => {
-    if (!blueprints || blueprints.length === 0) return [];
-    const filteredItems = blueprints.filter((item) =>
-      item.type_name.toLowerCase().includes(search.toLowerCase())
-    );
-    //TODO fix this sort, filtering and mayhem
-    const sortedItems = [...filteredItems].sort((a, b) => {
-      let valA;
-      let valB;
-      if (sortKey === "name") {
-        valA = a.type_name;
-        valB = b.type_name;
-      } else {
-        valA = a.blueprints[0][sortKey];
-        valB = b.blueprints[0][sortKey];
+  const handleCheck = (key: string, checked: boolean) => {
+    setSelected((prev) => {
+      const current = prev[key]?.value ?? 1;
+      const nextState: SelectedState = {
+        ...prev,
+        [key]: {
+          checked,
+          value: current,
+        },
+      };
+
+      if (checked && getTotal(nextState) > MAX_TOTAL) {
+        addToast({
+          title: "Selection limit exceeded",
+          description: `You cannot exceed the overall limit of ${MAX_TOTAL} BPCs.`,
+          color: "danger",
+        });
+        return prev;
       }
-      if (valA == null) return 1;
-      if (valB == null) return -1;
-      return (valA > valB ? 1 : -1) * (sortAsc ? 1 : -1);
+
+      return nextState;
     });
-    return sortedItems;
-  }, [search, sortKey, sortAsc, blueprints]);
+  };
+
+  const handleValueChange = (item: Blueprint, rawValue: number | null) => {
+    const parsedValue = typeof rawValue === "number" ? rawValue : 1;
+    const clampedValue = Math.min(
+      Math.max(Math.floor(parsedValue) || 1, 1),
+      item.quantity
+    );
+
+    setSelected((prev) => {
+      const nextState: SelectedState = {
+        ...prev,
+        [item.key]: {
+          checked: true,
+          value: clampedValue,
+        },
+      };
+
+      if (getTotal(nextState) > MAX_TOTAL) {
+        addToast({
+          title: "Selection limit exceeded",
+          description: `You cannot exceed the overall limit of ${MAX_TOTAL} BPCs.`,
+          color: "danger",
+        });
+        return prev;
+      }
+
+      return nextState;
+    });
+  };
+
+  const filteredGroups = useMemo<BlueprintGroup[]>(() => {
+    if (blueprintGroups.length === 0) {
+      return [];
+    }
+
+    const normalizedSearch = search.trim().toLowerCase();
+    const filtered = normalizedSearch.length
+      ? blueprintGroups.filter((group) =>
+          group.type_name.toLowerCase().includes(normalizedSearch)
+        )
+      : blueprintGroups;
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortKey === "name") {
+        return a.type_name.localeCompare(b.type_name) * (sortAsc ? 1 : -1);
+      }
+
+      const valueA = a.blueprints[0]?.[sortKey];
+      const valueB = b.blueprints[0]?.[sortKey];
+
+      if (valueA == null) return 1;
+      if (valueB == null) return -1;
+      return (valueA > valueB ? 1 : -1) * (sortAsc ? 1 : -1);
+    });
+
+    return sorted;
+  }, [blueprintGroups, search, sortAsc, sortKey]);
+
+  const handleSubmit = async () => {
+    if (selectedItems.length === 0) {
+      addToast({
+        title: "No items selected",
+        description: "Select at least one blueprint before submitting.",
+        color: "warning",
+      });
+      return;
+    }
+
+    try {
+      await createRequisition.mutateAsync({
+        blueprints: selectedItems.map((item) => ({
+          type_id: item.type_id,
+          runs: item.runs,
+          material_efficiency: item.material_efficiency ?? 0,
+          time_efficiency: item.time_efficiency ?? 0,
+          quantity: selected[item.key]?.value ?? item.quantity,
+        })),
+      });
+      addToast({
+        title: "Success",
+        description: "Requisition created successfully!",
+        color: "success",
+      });
+      setSelected({});
+    } catch (err) {
+      addToast({
+        title: "Error",
+        description:
+          err instanceof Error ? err.message : "Failed to create requisition.",
+        color: "danger",
+      });
+    }
+  };
 
   return (
     <div className="flex gap-4">
@@ -178,8 +216,8 @@ function RouteComponent() {
         <Input
           placeholder="Search items..."
           value={search}
-          onChange={(e: { target: { value: SetStateAction<string> } }) =>
-            setSearch(e.target.value)
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+            setSearch(event.target.value)
           }
           className="font-semibold w-64 p-2"
         />
@@ -202,138 +240,128 @@ function RouteComponent() {
             <TableColumn className="cursor-pointer">TE</TableColumn>
             <TableColumn className="cursor-pointer">Runs</TableColumn>
             <TableColumn className="cursor-pointer">Quantity</TableColumn>
-            <TableColumn children={undefined}></TableColumn>
+            <TableColumn>Adjust</TableColumn>
             <TableColumn>Select</TableColumn>
           </TableHeader>
-          <TableBody>
-            {filteredGroups.map(({ type_name, blueprints: items }) => {
-              const showExpandable = items.length > 1;
+          <TableBody
+            isLoading={isLoading}
+            loadingContent={<Spinner label="Loading..." />}
+            emptyContent="No data"
+          >
+            {filteredGroups.flatMap((group) => {
+              const { type_name: typeName, blueprints } = group;
+              const showExpandable = blueprints.length > 1;
 
-              return (
-                <>
-                  {showExpandable ? (
-                    <>
-                      <TableRow
-                        key={items[0].type_id}
-                        onClick={() => toggleExpand(type_name)}
-                        className="cursor-pointer"
-                      >
-                        <TableCell className="flex items-center gap-2 font-semibold">
-                          <Avatar
-                            radius="none"
-                            src={`https://images.evetech.net/types/${items[0].type_id}/bpc`}
+              if (showExpandable) {
+                const headerRow = (
+                  <TableRow
+                    key={`${typeName}-header`}
+                    onClick={() => toggleExpand(typeName)}
+                    className="cursor-pointer"
+                  >
+                    <TableCell className="flex items-center gap-2 font-semibold">
+                      <Avatar
+                        radius="none"
+                        src={`https://images.evetech.net/types/${blueprints[0].type_id}/bpc`}
+                      />
+                      {typeName}
+                    </TableCell>
+                    <TableCell colSpan={5} className="text-sm text-gray-500">
+                      {expandedGroups.has(typeName)
+                        ? "Click to collapse"
+                        : "Click to expand"}
+                    </TableCell>
+                    <TableCell>{null}</TableCell>
+                    <TableCell>{null}</TableCell>
+                  </TableRow>
+                );
+
+                if (!expandedGroups.has(typeName)) {
+                  return [headerRow];
+                }
+
+                const detailRows = blueprints.map((blueprint) => {
+                  const state = selected[blueprint.key];
+                  return (
+                    <TableRow key={blueprint.key}>
+                      <TableCell>{null}</TableCell>
+                      <TableCell>{null}</TableCell>
+                      <TableCell>
+                        {blueprint.material_efficiency ?? 0}
+                      </TableCell>
+                      <TableCell>{blueprint.time_efficiency ?? 0}</TableCell>
+                      <TableCell>{blueprint.runs}</TableCell>
+                      <TableCell>{blueprint.quantity}</TableCell>
+                      <TableCell>
+                        {state?.checked && (
+                          <NumberInput
+                            size="sm"
+                            className="w-20 mt-1"
+                            minValue={1}
+                            maxValue={blueprint.quantity}
+                            value={state.value}
+                            onValueChange={(value) =>
+                              handleValueChange(blueprint, value)
+                            }
                           />
-                          {type_name}
-                        </TableCell>
-                        <TableCell
-                          colSpan={4}
-                          className="text-sm text-gray-500"
-                        >
-                          {expandedGroups.has(type_name)
-                            ? "Click to collapse"
-                            : "Click to expand"}
-                        </TableCell>
-                        <TableCell children={undefined} />
-                        <TableCell children={undefined} />
-                        <TableCell children={undefined} />
-                      </TableRow>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Checkbox
+                          isSelected={state?.checked ?? false}
+                          onValueChange={(checked) =>
+                            handleCheck(blueprint.key, checked)
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                });
 
-                      {expandedGroups.has(type_name) &&
-                        items.map((item) => {
-                          const state = selected[item.key];
-                          return (
-                            <TableRow key={item.key}>
-                              <TableCell children={undefined} />
-                              <TableCell children={undefined}>{}</TableCell>
-                              <TableCell>
-                                {item.material_efficiency || 0}
-                              </TableCell>
-                              <TableCell>{item.time_efficiency || 0}</TableCell>
-                              <TableCell>{item.runs}</TableCell>
-                              <TableCell>{item.quantity} </TableCell>
-                              <TableCell>
-                                {state?.checked && (
-                                  <NumberInput
-                                    size="sm"
-                                    className="w-20 mt-1"
-                                    minValue={1}
-                                    maxValue={item.quantity}
-                                    aria-labelledby={
-                                      type_name +
-                                      items.findIndex(
-                                        (findItem) => findItem == item
-                                      )
-                                    }
-                                    value={state?.value || 0}
-                                    onValueChange={(e: number) =>
-                                      handleValueChange(item, e)
-                                    }
-                                  />
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <Checkbox
-                                  isSelected={state?.checked || false}
-                                  onValueChange={(checked: boolean) =>
-                                    handleCheck(item.key, checked)
-                                  }
-                                />
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                    </>
-                  ) : (
-                    items.map((item) => {
-                      const state = selected[item.key];
-                      return (
-                        <TableRow key={item.key}>
-                          <TableCell className="flex items-center gap-2 font-semibold">
-                            <Avatar
-                              radius="none"
-                              src={`https://images.evetech.net/types/${item.type_id}/bpc`}
-                            />
-                            {type_name}
-                          </TableCell>
-                          <TableCell children={undefined}></TableCell>
-                          <TableCell>{item.material_efficiency}</TableCell>
-                          <TableCell>{item.time_efficiency}</TableCell>
-                          <TableCell>{item.runs}</TableCell>
-                          <TableCell>{item.quantity} </TableCell>
-                          <TableCell>
-                            {state?.checked && (
-                              <NumberInput
-                                size="sm"
-                                aria-labelledby={
-                                  type_name +
-                                  items.findIndex(
-                                    (findItem) => findItem == item
-                                  )
-                                }
-                                className="w-20 mt-1"
-                                minValue={1}
-                                maxValue={item.quantity}
-                                value={state?.value || 0}
-                                onValueChange={(e: number) =>
-                                  handleValueChange(item, e)
-                                }
-                              />
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Checkbox
-                              isSelected={state?.checked || false}
-                              onValueChange={(checked: boolean) =>
-                                handleCheck(item.key, checked)
-                              }
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </>
-              );
+                return [headerRow, ...detailRows];
+              }
+
+              return blueprints.map((blueprint) => {
+                const state = selected[blueprint.key];
+                return (
+                  <TableRow key={blueprint.key}>
+                    <TableCell className="flex items-center gap-2 font-semibold">
+                      <Avatar
+                        radius="none"
+                        src={`https://images.evetech.net/types/${blueprint.type_id}/bpc`}
+                      />
+                      {typeName}
+                    </TableCell>
+                    <TableCell>{null}</TableCell>
+                    <TableCell>{blueprint.material_efficiency ?? 0}</TableCell>
+                    <TableCell>{blueprint.time_efficiency ?? 0}</TableCell>
+                    <TableCell>{blueprint.runs}</TableCell>
+                    <TableCell>{blueprint.quantity}</TableCell>
+                    <TableCell>
+                      {state?.checked && (
+                        <NumberInput
+                          size="sm"
+                          className="w-20 mt-1"
+                          minValue={1}
+                          maxValue={blueprint.quantity}
+                          value={state.value}
+                          onValueChange={(value) =>
+                            handleValueChange(blueprint, value)
+                          }
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Checkbox
+                        isSelected={state?.checked ?? false}
+                        onValueChange={(checked) =>
+                          handleCheck(blueprint.key, checked)
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                );
+              });
             })}
           </TableBody>
         </Table>
@@ -350,22 +378,22 @@ function RouteComponent() {
               <TableColumn>ME</TableColumn>
               <TableColumn>TE</TableColumn>
             </TableHeader>
-            <TableBody>
+            <TableBody emptyContent="No items selected">
               {selectedItems.map((item) => {
-                const quantity = selected[item.key]?.value || 1;
+                const quantity = selected[item.key]?.value ?? 1;
                 return (
-                  <TableRow key={item.key + "selected"}>
+                  <TableRow key={`${item.key}-selected`}>
                     <TableCell>
                       <Avatar
                         radius="none"
-                        src={`https://images.evetech.net/types/${item?.type_id}/bpc`}
+                        src={`https://images.evetech.net/types/${item.type_id}/bpc`}
                       />
-                      {item?.type_name || "Unknown Item"}
+                      {item.type_name || "Unknown Item"}
                     </TableCell>
                     <TableCell>{quantity}</TableCell>
-                    <TableCell>{item?.runs}</TableCell>
-                    <TableCell>{item?.material_efficiency}</TableCell>
-                    <TableCell>{item?.time_efficiency}</TableCell>
+                    <TableCell>{item.runs}</TableCell>
+                    <TableCell>{item.material_efficiency ?? 0}</TableCell>
+                    <TableCell>{item.time_efficiency ?? 0}</TableCell>
                   </TableRow>
                 );
               })}
@@ -373,24 +401,11 @@ function RouteComponent() {
           </Table>
           <Button
             className="object-bottom"
-            onPress={async () => {
-              try {
-                await createRequisition(selectedItems);
-                addToast({
-                  title: "Success",
-                  description: "Requisition created successfully!",
-                  color: "success",
-                });
-              } catch (e: unknown) {
-                addToast({
-                  title: "Error",
-                  description:
-                    "Failed to create requisition: " + (e as Error).message,
-                  color: "danger",
-                });
-              }
-              setSelected({});
-            }}
+            onPress={() => void handleSubmit()}
+            isDisabled={
+              selectedItems.length === 0 || createRequisition.isPending
+            }
+            isLoading={createRequisition.isPending}
           >
             Submit
           </Button>
@@ -399,53 +414,5 @@ function RouteComponent() {
     </div>
   );
 }
-async function fetchBlueprints(
-  setBlueprints: React.Dispatch<React.SetStateAction<BlueprintApiResponse[]>>
-) {
-  const response = await fetch(`/api/blueprints`, {
-    method: "GET",
-    credentials: "include",
-    mode: "cors",
-  });
-  if (response.status !== 200) {
-    throw new Error("Failed to fetch blueprints: " + response.statusText);
-  }
-  const data: Array<BlueprintApiResponse> = await response.json();
 
-  const correctedData = data.map((item) => {
-    return {
-      type_name: item.type_name,
-      blueprints: item.blueprints.map((blueprint) => ({
-        ...blueprint,
-        key: `${blueprint.type_id}-${blueprint?.material_efficiency || 0}-${blueprint?.time_efficiency || 0}-${blueprint.runs}`,
-      })),
-    };
-  });
-  setBlueprints(correctedData);
-  return;
-}
-
-async function createRequisition(selectedItems: Blueprint[]) {
-  // Required format for api
-  const requisitionItems = selectedItems.map((item) => ({
-    type_id: item.type_id,
-    runs: item.runs,
-    material_efficiency: item.material_efficiency || 0,
-    time_efficiency: item.time_efficiency || 0,
-    quantity: item.quantity,
-  }));
-
-  const response = await fetch(`/api/requisition`, {
-    method: "POST",
-    credentials: "include",
-    mode: "cors",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ blueprints: requisitionItems }),
-  });
-  if (response.status !== 200) {
-    throw new Error("Failed to create requisition");
-  }
-  return;
-}
+export default RouteComponent;

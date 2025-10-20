@@ -1,12 +1,12 @@
 import { Link } from "@heroui/react";
 import { Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import type { AuthContext } from "../contexts/AuthContext";
+import type { AuthContextValue } from "../contexts/AuthContext";
 import { NavBar } from "../components/NavBar";
 import { useTheme } from "../contexts/ThemeContext";
 import type { NavigateOptions, ToOptions } from "@tanstack/react-router";
 interface MyRouterContext {
-  auth: AuthContext;
+  auth: AuthContextValue;
 }
 
 export const Route = createRootRouteWithContext<MyRouterContext>()({

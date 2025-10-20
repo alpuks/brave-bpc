@@ -4,6 +4,8 @@ import {
   ErrorComponent,
   RouterProvider,
 } from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { routeTree } from "./routeTree.gen";
@@ -29,17 +31,31 @@ declare module "@tanstack/react-router" {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
+  const queryClient = useMemo(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 5 * 60 * 1000,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+    []
+  );
 
   return (
-    <HeroUIProvider
-      navigate={(to, options) => router.navigate({ to, ...options })}
-      useHref={(to) => router.buildLocation({ to }).href}
-    >
-      {typeof window !== "undefined" && <ToastProvider />}
-      <ThemeProvider>
-        <RouterProvider router={router} context={{ auth }} />
-        {children}
-      </ThemeProvider>
-    </HeroUIProvider>
+    <QueryClientProvider client={queryClient}>
+      <HeroUIProvider
+        navigate={(to, options) => router.navigate({ to, ...options })}
+        useHref={(to) => router.buildLocation({ to }).href}
+      >
+        {typeof window !== "undefined" && <ToastProvider />}
+        <ThemeProvider>
+          <RouterProvider router={router} context={{ auth }} />
+          {children}
+        </ThemeProvider>
+      </HeroUIProvider>
+    </QueryClientProvider>
   );
 }
