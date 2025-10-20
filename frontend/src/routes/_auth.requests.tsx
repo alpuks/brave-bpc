@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, addToast } from "@heroui/react";
+import { Button, Input, Select, SelectItem, addToast } from "@heroui/react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   Fragment,
@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ChangeEvent } from "react";
 import type { Selection, SortDescriptor } from "@react-types/shared";
 import {
   useRequisitionsQuery,
@@ -132,6 +133,11 @@ function RouteComponent() {
     column: "updated_at",
     direction: "descending",
   });
+
+  const statusSelectedKeys = useMemo(
+    () => new Set<string>([String(statusFilter)]),
+    [statusFilter]
+  );
 
   const requiresLocking = auth_level >= LOCK_AUTH_THRESHOLD;
   const selectingRef = useRef(false);
@@ -374,6 +380,28 @@ function RouteComponent() {
     [requestById, selectedKey, shouldLockRequest, toggleExpand]
   );
 
+  const handleStatusSelectionChange = useCallback((keys: Selection) => {
+    if (keys === "all") {
+      return;
+    }
+
+    if (!(keys instanceof Set)) {
+      return;
+    }
+
+    const first = keys.values().next();
+    if (first.done) {
+      return;
+    }
+
+    const nextValue = Number(first.value);
+    if (Number.isNaN(nextValue)) {
+      return;
+    }
+
+    setStatusFilter(nextValue);
+  }, []);
+
   const handleRequestAction = useCallback(
     async (action: "cancel" | "complete" | "reject", requestId: number) => {
       try {
@@ -442,18 +470,21 @@ function RouteComponent() {
             >
               Status
             </label>
-            <select
+            <Select
               id="status-filter"
-              className="rounded-medium border border-default-300 bg-content1 px-3 py-2 text-sm text-default-600"
-              value={String(statusFilter)}
-              onChange={(event) => setStatusFilter(Number(event.target.value))}
+              className="w-40"
+              disallowEmptySelection
+              selectedKeys={statusSelectedKeys}
+              selectionMode="single"
+              size="sm"
+              onSelectionChange={handleStatusSelectionChange}
             >
               {statusFilterOptions.map((option) => (
-                <option key={option.value} value={String(option.value)}>
+                <SelectItem key={String(option.value)}>
                   {option.label}
-                </option>
+                </SelectItem>
               ))}
-            </select>
+            </Select>
           </div>
 
           <div className="flex items-center gap-2">
@@ -463,14 +494,17 @@ function RouteComponent() {
             >
               Character
             </label>
-            <input
+            <Input
               id="character-filter"
               autoComplete="off"
-              className="rounded-medium border border-default-300 bg-content1 px-3 py-2 text-sm text-default-600"
-              onChange={(event) => setCharacterFilter(event.target.value)}
+              className="w-64"
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setCharacterFilter(event.target.value)
+              }
               placeholder="Filter by character"
               type="text"
               value={characterFilter}
+              size="sm"
             />
           </div>
         </div>
