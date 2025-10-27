@@ -162,7 +162,7 @@ const RequestsTable = memo(
               <TableCell>
                 <User
                   avatarProps={{
-                    src: `https://images.evetech.net/characters/${item.character_id}/portrait`,
+                    src: `https://images.evetech.net/characters/${item.character_id}/portrait?size=128`,
                   }}
                   className="text-default-600"
                   id={item.character_id.toString()}

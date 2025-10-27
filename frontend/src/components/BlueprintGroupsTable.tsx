@@ -64,7 +64,7 @@ const BlueprintGroupsTable = memo(
               <>
                 <Avatar
                   radius="none"
-                  src={`https://images.evetech.net/types/${blueprint.type_id}/bpc`}
+                  src={`https://images.evetech.net/types/${blueprint.type_id}/bpc?size=128`}
                 />
                 {typeName}
               </>
@@ -174,7 +174,7 @@ const BlueprintGroupsTable = memo(
                 <TableCell className="flex items-center gap-2 font-semibold">
                   <Avatar
                     radius="none"
-                    src={`https://images.evetech.net/types/${firstBlueprint.type_id}/bpc`}
+                    src={`https://images.evetech.net/types/${firstBlueprint.type_id}/bpc?size=128`}
                   />
                   {typeName}
                 </TableCell>

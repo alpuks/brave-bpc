@@ -76,7 +76,7 @@ export function NavBar() {
                   src:
                     "https://images.evetech.net/characters/" +
                     user?.character_id +
-                    "/portrait",
+                    "/portrait?size=128",
                   isBordered: true,
                   radius: "sm",
                   color: "default",

@@ -41,7 +41,7 @@ const BlueprintsTable = memo(
             <TableCell>
               <User
                 avatarProps={{
-                  src: `https://images.evetech.net/types/${blueprint.type_id}/bpc`,
+                  src: `https://images.evetech.net/types/${blueprint.type_id}/bpc?size=128`,
                 }}
                 name={blueprint.type_name}
               />
