@@ -48,9 +48,7 @@ async function fetchSession(): Promise<User | null> {
   } satisfies User;
 }
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({
-  children,
-}) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [state, setState] = useState<AuthState>({
     status: "loading",
     user: null,

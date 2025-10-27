@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, ReactNode, useContext, useState } from "react";
 
 export interface ThemeContextType {
   theme: string;
@@ -6,9 +6,7 @@ export interface ThemeContextType {
 }
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
-export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const savedTheme = localStorage.getItem("theme") || "dark";
 
   const [theme, setTheme] = useState<string>(savedTheme);
