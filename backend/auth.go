@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/AlHeamer/brave-bpc/glue"
 	"github.com/antihax/goesi"
 	"github.com/gorilla/sessions"
 	"go.uber.org/zap"
@@ -263,8 +264,99 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 		Name:   cookieUser,
 		Value:  authData.toJson(),
 		MaxAge: 60 * 60 * 24 * 30,
+		HttpOnly: true,
 	})
 
 	// TODO: redirect using value stored in state
 	http.Redirect(w, r, sourcePage, http.StatusFound)
+}
+
+func (app *app) createAuthHandlers(mux *http.ServeMux, mw *mwChain){
+	chain := mw.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
+	
+	mux.Handle("GET /login", chain.HandleFunc(app.login))
+	mux.Handle("GET /login/char", chain.HandleFunc(app.addCharToAccount))
+	mux.Handle("GET /login/scope", chain.HandleFunc(app.addScopeToAccount))
+
+	mux.Handle("GET /logout", chain.HandleFunc(app.logout))
+	mux.Handle("GET /session", chain.HandleFunc(app.getSession))
+
+
+}
+
+// standard login
+func (app *app) login(w http.ResponseWriter, r *http.Request) {
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("login")
+	app.doLogin(w, r, nil, authTypeLogin)
+}
+
+func (app *app) logout(w http.ResponseWriter, r *http.Request) {
+
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("logout")
+	s, err := app.sessionStore.Get(r, cookieSession)
+	if err != nil {
+		http.Error(w, "failed to get session", http.StatusInternalServerError)
+		return
+	}
+	s.Options.MaxAge = -1
+	if err = s.Save(r, w); err != nil {
+		http.Error(w, "failed to save session", http.StatusInternalServerError)		
+	}
+	http.Redirect(w, r, "/", http.StatusFound)
+
+
+}
+
+func (app *app) getSession(w http.ResponseWriter, r *http.Request) {
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("get session")
+	s, err := app.sessionStore.Get(r, cookieSession)
+	if err != nil || s == nil {
+		http.Error(w, "not logged in", http.StatusUnauthorized)
+		return
+	}
+	authData := s.Values[sessionUserData{}]
+	if authData == nil {
+		http.Error(w, "no auth data found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	httpWrite(w, authData)
+}
+
+func (app *app) addCharToAccount(w http.ResponseWriter, r *http.Request) {
+	// check if already logged in
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("add char to account")
+	s, _ := app.sessionStore.Get(r, cookieSession)
+	if s.IsNew {
+		http.Error(w, "not logged in", http.StatusUnauthorized)
+		return
+	}
+	// add character to account
+	app.doLogin(w, r, nil, authTypeAddCharacter)
+}
+
+// director login
+func (app *app) addScopeToAccount(w http.ResponseWriter, r *http.Request) {
+	// check if already logged in
+	logger := getLoggerFromContext(r.Context())
+	logger.Debug("add scope to account")
+	s, _ := app.sessionStore.Get(r, cookieSession)
+	if s.IsNew {
+		http.Error(w, "not logged in", http.StatusUnauthorized)
+		return
+	}
+
+	// create rows with refresh token
+	app.doLogin(w, r, []string{
+		string(glue.EsiScope_AssetsReadCorporationAssets_v1),
+		string(glue.EsiScope_CorporationsReadBlueprints_v1),
+		string(glue.EsiScope_CorporationsReadDivisions_v1),
+		string(glue.EsiScope_IndustryReadCorporationJobs_v1),
+		string(glue.EsiScope_UniverseReadStructures_v1),
+	}, authTypeAddScopes)
 }

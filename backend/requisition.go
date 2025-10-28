@@ -4,10 +4,11 @@ import "time"
 
 type requestedBlueprint struct {
 	TypeId             int32  `json:"type_id,omitempty"`
-	Name               string `json:"name,omitempty"`
+	Name               string `json:"type_name,omitempty"`
 	Runs               int16  `json:"runs,omitempty"`
 	MaterialEfficiency int8   `json:"me,omitempty"`
 	TimeEfficiency     int8   `json:"te,omitempty"`
+	Quantity           int32  `json:"quantity,omitempty"`
 	Any                bool   `json:"any,omitempty"`
 }
 

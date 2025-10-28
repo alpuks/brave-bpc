@@ -1,48 +1,97 @@
-import Cookies from "js-cookie";
-import { createContext, useContext, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  ReactNode,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 
 interface User {
   character_name: string;
-  auth_level: string;
-  character_id: string;
+  auth_level: number;
+  character_id: number;
 }
 
-export interface AuthContext {
+type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+
+export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
-  logout: () => void;
+  isLoading: boolean;
+  refresh: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContext | null>(null);
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({
-  children,
-}) => {
-  const cookie = Cookies.get('brave-bpc')
+interface AuthState {
+  status: AuthStatus;
+  user: User | null;
+}
 
-  const authCookie = cookie
-    ? JSON.parse(atob(cookie)) : null
+async function fetchSession(): Promise<User | null> {
+  const response = await fetch("/session", {
+    credentials: "include",
+  });
 
-  const [user, setUser] = useState<User | null>(authCookie);
+  if (!response.ok) {
+    return null;
+  }
 
-  const logout = () => {
-    setUser(null);
-    Cookies.remove('brave-bpc')
-  };
+  const data = await response.json();
+  return {
+    character_name: data.character_name,
+    auth_level: data.auth_level,
+    character_id: Number(data.character_id),
+  } satisfies User;
+}
 
-  return (
-    <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, logout }}
-    >
-      {children}
-    </AuthContext.Provider>
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [state, setState] = useState<AuthState>({
+    status: "loading",
+    user: null,
+  });
+
+  const refresh = useCallback(async () => {
+    setState((prev) => ({ ...prev, status: "loading" }));
+    try {
+      const user = await fetchSession();
+      setState({ status: user ? "authenticated" : "unauthenticated", user });
+    } catch {
+      setState({ status: "unauthenticated", user: null });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const logout = useCallback(async () => {
+    await fetch("/logout", { credentials: "include" });
+    setState({ status: "unauthenticated", user: null });
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user: state.user,
+      isAuthenticated: state.status === "authenticated",
+      isLoading: state.status === "loading",
+      refresh,
+      logout,
+    }),
+    [state, refresh, logout]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => {
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-};
+}
