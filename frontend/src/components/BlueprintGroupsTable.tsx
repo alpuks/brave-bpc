@@ -29,6 +29,7 @@ export interface BlueprintGroupsTableProps {
   onValueChange: (blueprint: Blueprint, value: number | null) => void;
   onCheck: (key: string, checked: boolean) => void;
   isLoading: boolean;
+  className?: string;
 }
 
 const BlueprintGroupsTable = memo(
@@ -43,6 +44,7 @@ const BlueprintGroupsTable = memo(
     onValueChange,
     onCheck,
     isLoading,
+    className,
   }: BlueprintGroupsTableProps) => {
     const renderSortIndicator = (key: keyof Blueprint | "name") =>
       sortKey === key ? (sortAsc ? " ▲" : " ▼") : "";
@@ -54,7 +56,9 @@ const BlueprintGroupsTable = memo(
     ) => {
       const state = selectionState[blueprint.key];
       return (
-        <TableRow key={blueprint.key}>
+        <TableRow
+          key={`${blueprint.key}-${blueprint.material_efficiency ?? 0}-${blueprint.time_efficiency ?? 0}-${blueprint.runs}`}
+        >
           <TableCell
             className={
               showTypeInfo ? "flex items-center gap-2 font-semibold" : undefined
@@ -76,16 +80,21 @@ const BlueprintGroupsTable = memo(
           <TableCell>{blueprint.runs}</TableCell>
           <TableCell>{blueprint.quantity}</TableCell>
           <TableCell>
-            {state?.checked && (
-              <NumberInput
-                className="w-20 mt-1"
-                maxValue={blueprint.quantity}
-                minValue={1}
-                onValueChange={(value) => onValueChange(blueprint, value)}
-                size="sm"
-                value={state.value}
-              />
-            )}
+            <div className="flex h-10 items-center justify-center">
+              {state?.checked ? (
+                <NumberInput
+                  aria-label={`Adjust quantity for ${typeName}`}
+                  className="w-20"
+                  maxValue={blueprint.quantity}
+                  minValue={1}
+                  onValueChange={(value) => onValueChange(blueprint, value)}
+                  size="sm"
+                  value={state.value}
+                />
+              ) : (
+                <div aria-hidden className="h-9 w-20" />
+              )}
+            </div>
           </TableCell>
           <TableCell>
             <Checkbox
@@ -100,9 +109,11 @@ const BlueprintGroupsTable = memo(
     return (
       <Table
         aria-label="Collapsible selectable table"
-        className="flex gap-4"
+        className={["flex h-full w-full flex-col", className]
+          .filter(Boolean)
+          .join(" ")}
         isStriped
-        isVirtualized
+        isHeaderSticky
       >
         <TableHeader>
           <TableColumn

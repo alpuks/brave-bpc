@@ -216,51 +216,59 @@ function RouteComponent() {
   }, [selected, selectedItems]);
 
   return (
-    <div className="flex gap-4">
-      <div>
+    <div className="flex items-start gap-6">
+      <div className="flex w-[1000px] flex-col gap-4">
         <Input
           placeholder="Search items..."
           value={search}
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
             setSearch(event.target.value)
           }
-          className="font-semibold w-64 p-2"
+          className="w-72 font-semibold"
         />
 
-        <BlueprintGroupsTable
-          groups={filteredGroups}
-          expandedGroups={expandedGroups}
-          onToggleGroup={toggleExpand}
-          onSort={handleSort}
-          sortKey={sortKey}
-          sortAsc={sortAsc}
-          selectionState={selected}
-          onValueChange={handleValueChange}
-          onCheck={handleCheck}
-          isLoading={isLoading}
-        />
+        <div className="h-[620px] overflow-hidden rounded-xl border border-default-200 bg-content1 p-2 shadow-sm">
+          <BlueprintGroupsTable
+            className="h-full"
+            groups={filteredGroups}
+            expandedGroups={expandedGroups}
+            onToggleGroup={toggleExpand}
+            onSort={handleSort}
+            sortKey={sortKey}
+            sortAsc={sortAsc}
+            selectionState={selected}
+            onValueChange={handleValueChange}
+            onCheck={handleCheck}
+            isLoading={isLoading}
+          />
+        </div>
       </div>
       {selected && (
-        <div className="flex gap-4 flex-col border rounded-lg p-4">
-          <h2 className="text-center font-bold">Selected Items</h2>
-
-          <BlueprintsTable
-            ariaLabel="Selected items table"
-            className="flex-1 h-full"
-            blueprints={selectedBlueprints}
-            emptyContent="No items selected"
-          />
-          <Button
-            className="object-bottom"
-            onPress={() => void handleSubmit()}
-            isDisabled={
-              selectedItems.length === 0 || createRequisition.isPending
-            }
-            isLoading={createRequisition.isPending}
-          >
-            Submit
-          </Button>
-        </div>
+        <aside className="sticky top-4 flex w-[480px] flex-col">
+          <div className="flex flex-col gap-4 rounded-xl border border-default-200 bg-content1 p-4 shadow-sm">
+            <h2 className="text-center text-lg font-semibold text-default-900">
+              Selected Items
+            </h2>
+            <div className="h-[470px] overflow-auto rounded-lg border border-default-200 bg-content2">
+              <BlueprintsTable
+                ariaLabel="Selected items table"
+                className="h-full w-full"
+                blueprints={selectedBlueprints}
+                emptyContent="No items selected"
+              />
+            </div>
+            <Button
+              className="mt-auto"
+              onPress={() => void handleSubmit()}
+              isDisabled={
+                selectedItems.length === 0 || createRequisition.isPending
+              }
+              isLoading={createRequisition.isPending}
+            >
+              Submit
+            </Button>
+          </div>
+        </aside>
       )}
     </div>
   );
