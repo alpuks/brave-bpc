@@ -32,7 +32,7 @@ const BlueprintsTable = memo(
       removeWrapper
       shadow="none"
     >
-      <TableHeader>
+      <TableHeader className="bg-default-100/90 text-default-700 shadow-sm backdrop-blur supports-[backdrop-filter]:backdrop-blur-md dark:bg-default-50/80 dark:text-default-300">
         <TableColumn key="bp">Blueprint</TableColumn>
         <TableColumn key="me">ME</TableColumn>
         <TableColumn key="te">TE</TableColumn>

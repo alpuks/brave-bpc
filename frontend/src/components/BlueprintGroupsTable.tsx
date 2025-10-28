@@ -115,7 +115,7 @@ const BlueprintGroupsTable = memo(
         isStriped
         isHeaderSticky
       >
-        <TableHeader>
+        <TableHeader className="bg-default-100/90 text-default-700 shadow-sm backdrop-blur supports-[backdrop-filter]:backdrop-blur-md dark:bg-default-50/80 dark:text-default-300">
           <TableColumn
             className="cursor-pointer"
             onClick={() => onSort("name")}
