@@ -36,6 +36,7 @@ export interface RequestsTableProps {
   onView: (id: number) => void;
   onSelectionChange: (keys: Selection | "all") => void;
   onSortChange: (descriptor: SortDescriptor) => void;
+  className?: string;
 }
 
 const RequestsTable = memo(
@@ -53,12 +54,15 @@ const RequestsTable = memo(
     onView,
     onSelectionChange,
     onSortChange,
+    className,
   }: RequestsTableProps) => (
     <Table
       aria-label="Requests Table"
-      className="w-full"
+      className={["h-full w-full", className].filter(Boolean).join(" ")}
       isStriped
-      isVirtualized
+      isHeaderSticky
+      removeWrapper
+      shadow="none"
       onSelectionChange={onSelectionChange}
       onSortChange={onSortChange}
       selectedKeys={selectedKeys}

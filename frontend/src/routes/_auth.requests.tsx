@@ -443,8 +443,8 @@ function RouteComponent() {
   ]);
 
   return (
-    <div className="flex w-full flex-row gap-4">
-      <div className="flex w-full flex-col gap-4">
+    <div className="flex items-start gap-6">
+      <div className="flex w-[1000px] flex-col gap-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <label
@@ -492,76 +492,90 @@ function RouteComponent() {
           </div>
         </div>
 
-        <RequestsTable
-          error={error}
-          isLoading={isLoading}
-          items={sortedItems}
-          selectedKey={selectedKey}
-          selectedRequest={selectedRequest}
-          shouldLockRequest={shouldLockRequest}
-          resolveStatusMetadata={resolveStatusMetadata}
-          formatDate={formatDate}
-          onView={handleView}
-          onSelectionChange={handleSelectionChange}
-          onSortChange={setSortDescriptor}
-          selectedKeys={selectedKeys}
-          sortDescriptor={sortDescriptor}
-        />
+        <div className="h-[620px] overflow-hidden rounded-xl border border-default-200 bg-content1 p-2 shadow-sm">
+          <div className="h-full overflow-auto rounded-lg border border-default-200 bg-content2">
+            <RequestsTable
+              className="h-full"
+              error={error}
+              isLoading={isLoading}
+              items={sortedItems}
+              selectedKey={selectedKey}
+              selectedRequest={selectedRequest}
+              shouldLockRequest={shouldLockRequest}
+              resolveStatusMetadata={resolveStatusMetadata}
+              formatDate={formatDate}
+              onView={handleView}
+              onSelectionChange={handleSelectionChange}
+              onSortChange={setSortDescriptor}
+              selectedKeys={selectedKeys}
+              sortDescriptor={sortDescriptor}
+            />
+          </div>
+        </div>
       </div>
 
       {selectedRequest && (
-        <div className="rounded-medium border p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-medium font-semibold">
-              Request #{selectedRequest.id} details
-            </h3>
-            <div className="flex gap-2">
-              {selectedRequest.character_id === character_id &&
-                isOpenStatus(selectedRequest.status) && (
-                  <Button
-                    color="warning"
-                    onPress={() =>
-                      handleRequestAction("cancel", selectedRequest.id)
-                    }
-                    variant="ghost"
-                  >
-                    Cancel
-                  </Button>
-                )}
-              {auth_level >= LOCK_AUTH_THRESHOLD &&
-                isOpenStatus(selectedRequest.status) && (
-                  <Fragment>
+        <aside className="sticky top-4 flex w-[420px] flex-col">
+          <div className="flex h-[620px] flex-col gap-4 rounded-xl border border-default-200 bg-content1 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h3 className="text-medium font-semibold">
+                Request #{selectedRequest.id} details
+              </h3>
+              <div className="flex gap-2">
+                {selectedRequest.character_id === character_id &&
+                  isOpenStatus(selectedRequest.status) && (
                     <Button
-                      color="success"
+                      color="warning"
                       onPress={() =>
-                        handleRequestAction("complete", selectedRequest.id)
+                        handleRequestAction("cancel", selectedRequest.id)
                       }
                       variant="ghost"
                     >
-                      Complete
+                      Cancel
                     </Button>
-                    <Button
-                      color="danger"
-                      onPress={() =>
-                        handleRequestAction("reject", selectedRequest.id)
-                      }
-                      variant="ghost"
-                    >
-                      Reject
-                    </Button>
-                  </Fragment>
-                )}
-              <Button
-                onPress={() => void toggleExpand(selectedRequest.id)}
-                variant="flat"
-              >
-                Close
-              </Button>
+                  )}
+                {auth_level >= LOCK_AUTH_THRESHOLD &&
+                  isOpenStatus(selectedRequest.status) && (
+                    <Fragment>
+                      <Button
+                        color="success"
+                        onPress={() =>
+                          handleRequestAction("complete", selectedRequest.id)
+                        }
+                        variant="ghost"
+                      >
+                        Complete
+                      </Button>
+                      <Button
+                        color="danger"
+                        onPress={() =>
+                          handleRequestAction("reject", selectedRequest.id)
+                        }
+                        variant="ghost"
+                      >
+                        Reject
+                      </Button>
+                    </Fragment>
+                  )}
+                <Button
+                  onPress={() => void toggleExpand(selectedRequest.id)}
+                  variant="flat"
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto rounded-lg border border-default-200 bg-content2 p-2">
+              <BlueprintsTable
+                ariaLabel="Selected request details"
+                className="h-full w-full"
+                blueprints={selectedRequest.blueprints}
+                emptyContent="No blueprints"
+              />
             </div>
           </div>
-
-          <BlueprintsTable blueprints={selectedRequest.blueprints} />
-        </div>
+        </aside>
       )}
     </div>
   );
