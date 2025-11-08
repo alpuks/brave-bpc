@@ -261,9 +261,9 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 
 	// send unsigned cookie so the client has basic user data
 	http.SetCookie(w, &http.Cookie{
-		Name:   cookieUser,
-		Value:  authData.toJson(),
-		MaxAge: 60 * 60 * 24 * 30,
+		Name:     cookieUser,
+		Value:    authData.toJson(),
+		MaxAge:   60 * 60 * 24 * 30,
 		HttpOnly: true,
 	})
 
@@ -271,17 +271,14 @@ func (app *app) callback(logger *zap.Logger, w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, sourcePage, http.StatusFound)
 }
 
-func (app *app) createAuthHandlers(mux *http.ServeMux, mw *mwChain){
+func (app *app) createAuthHandlers(mux *http.ServeMux, mw *mwChain) {
 	chain := mw.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
-	
+
 	mux.Handle("GET /login", chain.HandleFunc(app.login))
 	mux.Handle("GET /login/char", chain.HandleFunc(app.addCharToAccount))
 	mux.Handle("GET /login/scope", chain.HandleFunc(app.addScopeToAccount))
-
 	mux.Handle("GET /logout", chain.HandleFunc(app.logout))
 	mux.Handle("GET /session", chain.HandleFunc(app.getSession))
-
-
 }
 
 // standard login
@@ -292,7 +289,6 @@ func (app *app) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *app) logout(w http.ResponseWriter, r *http.Request) {
-
 	logger := getLoggerFromContext(r.Context())
 	logger.Debug("logout")
 	s, err := app.sessionStore.Get(r, cookieSession)
@@ -300,13 +296,13 @@ func (app *app) logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to get session", http.StatusInternalServerError)
 		return
 	}
+
 	s.Options.MaxAge = -1
 	if err = s.Save(r, w); err != nil {
-		http.Error(w, "failed to save session", http.StatusInternalServerError)		
+		http.Error(w, "failed to save session", http.StatusInternalServerError)
 	}
+
 	http.Redirect(w, r, "/", http.StatusFound)
-
-
 }
 
 func (app *app) getSession(w http.ResponseWriter, r *http.Request) {
@@ -317,6 +313,7 @@ func (app *app) getSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not logged in", http.StatusUnauthorized)
 		return
 	}
+
 	authData := s.Values[sessionUserData{}]
 	if authData == nil {
 		http.Error(w, "no auth data found", http.StatusInternalServerError)

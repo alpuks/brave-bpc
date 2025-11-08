@@ -20,12 +20,13 @@ type requisitionOrder struct {
 	Id            int64                `json:"id,omitempty"`
 	CharacterId   int32                `json:"character_id,omitempty"`
 	Status        requisitionStatus    `json:"status,omitempty"`
-	CreatedAt     time.Time            `json:"created_at,omitempty"`
-	UpdatedAt     time.Time            `json:"updated_at,omitempty"`
+	CreatedAt     time.Time            `json:"created_at,omitzero"`
+	UpdatedAt     time.Time            `json:"updated_at,omitzero"`
 	Blueprints    []requestedBlueprint `json:"blueprints,omitempty"`
 	CharacterName string               `json:"character_name,omitempty"`
 	UpdatedBy     string               `json:"updated_by,omitempty"`
 	PublicNotes   string               `json:"public_notes,omitempty"`
+	Lock          *requisitionLock     `json:"lock,omitzero"`
 }
 
 type requisitionStatus int8

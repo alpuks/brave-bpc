@@ -48,6 +48,12 @@ type runtimeConfig struct {
 	jwtSkew     time.Duration
 }
 
+type requisitionLock struct {
+	LockedAt      time.Time `json:"locked_at"`
+	CharacterId   int32     `json:"character_id"`
+	CharacterName string    `json:"character_name"`
+}
+
 type app struct {
 	config         *appConfig
 	runtimeConfig  *runtimeConfig
@@ -58,7 +64,7 @@ type app struct {
 	invStateLock   sync.RWMutex
 	inventoryState *inventoryState
 
-	requisitionLocks      *syncMap[int64, int32]
+	requisitionLocks      *syncMap[int64, requisitionLock]
 	flake                 *snowflake.Node
 	jwks                  *EsiJwks
 	adminTokenRefreshChan chan struct{}
@@ -91,7 +97,7 @@ func main() {
 			typeNames:      map[int32]string{},
 			tree:           map[int64]CorpAsset{},
 		},
-		requisitionLocks:      newSyncMap[int64, int32](),
+		requisitionLocks:      newSyncMap[int64, requisitionLock](),
 		runtimeConfig:         runtimeConfig,
 		adminTokenRefreshChan: make(chan struct{}, 1),
 	}
@@ -188,8 +194,6 @@ func (app *app) root(w http.ResponseWriter, r *http.Request) {
 `
 	w.Write([]byte(body))
 }
-
-
 
 // print out the app config data
 func (app *app) printConfig(w http.ResponseWriter, r *http.Request) {

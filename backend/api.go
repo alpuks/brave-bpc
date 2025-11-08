@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -119,6 +121,48 @@ func (app *app) getBlueprints(w http.ResponseWriter, r *http.Request) {
 	httpWrite(w, resp)
 }
 
+func (app *app) setRequisitionLock(user *user, reqId int64) error {
+	lock, ok := app.getRequisitionLock(reqId)
+	if ok {
+		return fmt.Errorf("locked by %s at %s", lock.CharacterName, lock.LockedAt.Format(time.DateTime))
+	}
+
+	app.requisitionLocks.Set(reqId, requisitionLock{
+		CharacterId:   user.CharacterId,
+		CharacterName: user.CharacterName,
+		LockedAt:      time.Now(),
+	})
+	return nil
+}
+
+func (app *app) deleteRequisitionLock(user *user, reqId int64) error {
+	lock, ok := app.getRequisitionLock(reqId)
+	if !ok {
+		return errors.New("requisition lock does not exist")
+	}
+
+	if lock.CharacterId == user.CharacterId {
+		app.requisitionLocks.Delete(reqId)
+	}
+
+	return nil
+}
+
+func (app *app) getRequisitionLock(reqId int64) (*requisitionLock, bool) {
+	req, ok := app.requisitionLocks.Get(reqId)
+	lock := &req
+	if !ok {
+		return nil, false
+	}
+
+	if time.Now().After(lock.LockedAt.Add(time.Hour)) {
+		app.requisitionLocks.Delete(reqId)
+		return nil, false
+	}
+
+	return lock, true
+}
+
 func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	user := app.getUserFromSession(r)
@@ -142,7 +186,7 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "lock":
-		if _, ok := app.requisitionLocks.Get(reqId); ok {
+		if _, ok := app.getRequisitionLock(reqId); ok {
 			logger.Debug("attempting to lock pre-locked requisition")
 			httpError(w, "resource locked", http.StatusBadRequest)
 			return
@@ -163,20 +207,19 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		app.requisitionLocks.Set(reqId, user.CharacterId)
+		app.setRequisitionLock(user, reqId)
 
 	case "unlock":
-		if _, ok := app.requisitionLocks.Get(reqId); !ok {
+		if _, ok := app.getRequisitionLock(reqId); !ok {
 			logger.Debug("attempting to unlock requisition that is not locked")
 			httpError(w, "resource not locked", http.StatusBadRequest)
 			return
 		}
-		app.requisitionLocks.Delete(reqId)
 
 	case "cancel":
-		lockUser, ok := app.requisitionLocks.Get(reqId)
+		lock, ok := app.getRequisitionLock(reqId)
 		if ok {
-			logger.Debug("attempting to cancel requisition that is locked", zap.Int32("locked_by", lockUser), zap.Int32("user", user.CharacterId))
+			logger.Debug("attempting to cancel requisition that is locked", zap.Any("lock", lock))
 			httpError(w, "resource is locked", http.StatusConflict)
 			return
 		}
@@ -201,23 +244,23 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		app.requisitionLocks.Set(reqId, user.CharacterId)
+		app.setRequisitionLock(user, reqId)
 		if err = app.dao.cancelRequisition(reqId, user.CharacterName); err != nil {
 			logger.Error("error cancelling requisition", zap.Error(err))
 			httpError(w, "error cancelling requisition", http.StatusInternalServerError)
 		}
-		app.requisitionLocks.Delete(reqId)
+		app.deleteRequisitionLock(user, reqId)
 
 	case "complete":
-		lockUser, ok := app.requisitionLocks.Get(reqId)
+		lock, ok := app.getRequisitionLock(reqId)
 		if !ok {
-			logger.Debug("attempting to complete requisition that is not locked", zap.Int32("locked_by", lockUser), zap.Int32("user", user.CharacterId))
+			logger.Debug("attempting to complete requisition that is not locked", zap.Any("lock", lock))
 			httpError(w, "resource not locked", http.StatusConflict)
 			return
 		}
-		if lockUser != user.CharacterId {
-			logger.Debug("can't complete requisition, locked by other user", zap.Int32("locked_by", lockUser), zap.Int32("user", user.CharacterId))
-			httpError(w, "can't complete requisition, locked by other user", http.StatusForbidden)
+		if lock.CharacterId != user.CharacterId {
+			logger.Debug("can't complete requisition, locked by another user", zap.Any("lock", lock))
+			httpError(w, "can't complete requisition, locked by "+lock.CharacterName, http.StatusForbidden)
 			return
 		}
 
@@ -241,18 +284,18 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			httpError(w, "error completing requisition", http.StatusInternalServerError)
 			return
 		}
-		app.requisitionLocks.Delete(reqId)
+		app.deleteRequisitionLock(user, reqId)
 
 	case "reject":
-		lockUser, ok := app.requisitionLocks.Get(reqId)
+		lock, ok := app.getRequisitionLock(reqId)
 		if !ok {
 			logger.Debug("attempting to complete requisition that is not locked")
 			httpError(w, "resource not locked", http.StatusConflict)
 			return
 		}
-		if lockUser != user.CharacterId {
-			logger.Debug("can't reject requisition, locked by other user", zap.Int32("locked_by", lockUser), zap.Int32("user", user.CharacterId))
-			httpError(w, "can't reject requisition, locked by other user", http.StatusForbidden)
+		if lock.CharacterId != user.CharacterId {
+			logger.Debug("can't reject requisition, locked by another user", zap.Any("lock", lock))
+			httpError(w, "can't reject requisition, locked by "+lock.CharacterName, http.StatusForbidden)
 			return
 		}
 
@@ -276,7 +319,7 @@ func (app *app) patchRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 			httpError(w, "error rejecting requisition", http.StatusInternalServerError)
 			return
 		}
-		app.requisitionLocks.Delete(reqId)
+		app.deleteRequisitionLock(user, reqId)
 	}
 }
 
@@ -295,6 +338,9 @@ func (app *app) getRequisitionOrder(w http.ResponseWriter, r *http.Request) {
 		httpError(w, "error getting requisition", http.StatusInternalServerError)
 		return
 	}
+
+	lock, _ := app.getRequisitionLock(reqId)
+	req.Lock = lock
 
 	httpWrite(w, req)
 }
@@ -319,6 +365,11 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 		logger.Error("error fetching requisition orders", zap.Error(err))
 		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)
 		return
+	}
+
+	for i := range orders {
+		lock, _ := app.getRequisitionLock(orders[i].Id)
+		orders[i].Lock = lock
 	}
 
 	httpWrite(w, orders)
