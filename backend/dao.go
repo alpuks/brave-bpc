@@ -351,19 +351,20 @@ VALUES (?,?,?,?)
 func (dao *dao) listRequisitionOrders(characterId int32, status requisitionStatus) ([]requisitionOrder, error) {
 	params := sqlparams.New()
 	// Status param moved to before character ID due to ordering in query
-	params.AddParam(status)
-	filter := ""
+	filter := "1=1"
+	if status != requisitionStatus_Unknown {
+		filter = "requisition_status = ?"
+		params.AddParam(status)
+	}
 	if characterId > 0 {
-		filter = "AND character_id = ?"
+		filter = " AND character_id = ?"
 		params.AddParam(characterId)
 	}
-	
 
 	rows, err := dao.db.Query(`
 SELECT *
 FROM requisition_order
-WHERE requisition_status=?
-`+filter+`
+WHERE `+filter+`
 ORDER BY created_at ASC
 `, params...)
 	if err != nil {

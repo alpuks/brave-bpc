@@ -32,13 +32,15 @@ type requisitionOrder struct {
 type requisitionStatus int8
 
 const (
-	requisitionStatus_Open requisitionStatus = iota
+	requisitionStatus_Unknown requisitionStatus = iota
+	requisitionStatus_Open
 	requisitionStatus_Canceled
 	requisitionStatus_Completed
 	requisitionStatus_Rejected
 )
 
 var requisitionStauts_name = map[requisitionStatus]string{
+	requisitionStatus_Unknown:   "unknown",
 	requisitionStatus_Open:      "open",
 	requisitionStatus_Canceled:  "closed",
 	requisitionStatus_Completed: "completed",

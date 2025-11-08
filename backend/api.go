@@ -349,8 +349,12 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 	logger := getLoggerFromContext(r.Context()).Named("api")
 	logger.Debug("list requisition orders")
 
+	status := requisitionStatus_Open
 	strStatus := r.URL.Query().Get("status")
-	status, _ := strconv.ParseInt(strStatus, 10, 64)
+	intStatus, err := strconv.ParseInt(strStatus, 10, 64)
+	if err == nil {
+		status = requisitionStatus(intStatus)
+	}
 
 	user := app.getUserFromSession(r)
 	characterId := user.CharacterId
@@ -360,7 +364,7 @@ func (app *app) listRequisitionOrders(w http.ResponseWriter, r *http.Request) {
 		characterId = int32(parsedChar)
 	}
 
-	orders, err := app.dao.listRequisitionOrders(characterId, requisitionStatus(status))
+	orders, err := app.dao.listRequisitionOrders(characterId, status)
 	if err != nil {
 		logger.Error("error fetching requisition orders", zap.Error(err))
 		httpError(w, "error fetching requisition orders", http.StatusInternalServerError)

@@ -41,13 +41,14 @@ type StatusMetadataEntry = {
 };
 
 const statusMetadata: Record<number, StatusMetadataEntry> = {
-  0: { value: 0, slug: "open", name: "Open", color: "primary" },
-  1: { value: 1, slug: "canceled", name: "Canceled", color: "default" },
-  2: { value: 2, slug: "completed", name: "Completed", color: "success" },
-  3: { value: 3, slug: "rejected", name: "Rejected", color: "danger" },
+  0: { value: 0, slug: "unknown", name: "Unknown", color: "warning" },
+  1: { value: 1, slug: "open", name: "Open", color: "primary" },
+  2: { value: 2, slug: "canceled", name: "Canceled", color: "default" },
+  3: { value: 3, slug: "completed", name: "Completed", color: "success" },
+  4: { value: 4, slug: "rejected", name: "Rejected", color: "danger" },
 };
 
-const OPEN_STATUS_VALUE = 0;
+const OPEN_STATUS_VALUE = 1;
 
 const statusMetadataBySlug: Record<string, StatusMetadataEntry> = {};
 for (const entry of Object.values(statusMetadata)) {
