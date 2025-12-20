@@ -42,6 +42,51 @@ Running the frontend container provides a hotloading webserver at `localhost:300
 docker compose up -d frontend
 ```
 
+## Production
+
+### Docker (recommended)
+- Use [docker-compose.prod.yaml](docker-compose.prod.yaml). It serves the SPA via nginx and reverse-proxies `/api/*`, `/session`, and `/logout` to the backend container so cookie auth works on a single origin.
+- Production publishes `80:80` and `443:443` (Vite `:3000` is dev-only).
+- Provide secrets via environment variables (compose interpolation), e.g. in a deploy-time env file:
+  - `ESI_APP_ID`, `ESI_APP_SECRET`, `ESI_APP_REDIRECT`
+  - `DB_USER`, `DB_PASS`, `DB_NAME`, `DB_ROOT_PASSWORD`
+
+- TLS certs: mount `./deploy/nginx/certs/fullchain.pem` and `./deploy/nginx/certs/privkey.pem` (see the `frontend` service in the compose file).
+
+Run:
+```sh
+docker compose -f docker-compose.prod.yaml up -d --build
+```
+
+### Docker + standalone nginx (host-installed)
+- If you prefer to run nginx directly on the host (system package / certbot / etc), use [docker-compose.prod.host-nginx.yaml](docker-compose.prod.host-nginx.yaml).
+- This runs DB + backend only, binding backend to `127.0.0.1:2727` for the host nginx to proxy to.
+
+Run:
+```sh
+docker compose -f docker-compose.prod.host-nginx.yaml up -d --build
+```
+
+Then:
+- Build the SPA and place it on disk:
+  - Option A (dockerized build):
+    ```sh
+    docker compose -f docker-compose.prod.host-nginx.yaml run --rm frontend-build
+    ```
+    Outputs to `./deploy/frontend-dist`.
+  - Option B (host build): `cd frontend && npm ci && npm run build`
+- Configure host nginx to serve the SPA directory and proxy backend routes. Example: [deploy/nginx/brave-bpc.conf](deploy/nginx/brave-bpc.conf)
+
+### Bare metal
+- Backend:
+  - Build: `cd backend && go build -o ../app`
+  - Run the binary with env vars set (or an env file consumed by your process manager): `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASS`, `DB_NAME`, `ENVIRONMENT=prod`, plus the `ESI_*` OAuth vars.
+  - An example systemd unit is in [deploy/systemd/brave-bpc-backend.service](deploy/systemd/brave-bpc-backend.service).
+- Frontend:
+  - Build: `cd frontend && npm ci && npm run build`
+  - Serve `frontend/dist` via nginx (or equivalent) and proxy the backend routes.
+  - An example nginx site config is in [deploy/nginx/brave-bpc.conf](deploy/nginx/brave-bpc.conf).
+
 ### Known Bugs
 - Issue when adding more scopes to an existing character/token
 

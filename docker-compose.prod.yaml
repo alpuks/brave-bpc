@@ -1,0 +1,64 @@
+services:
+  db:
+    image: mariadb:10.5
+    container_name: db
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/mysql
+    environment:
+      MYSQL_USER: ${DB_USER:-local}
+      MYSQL_PASSWORD: ${DB_PASS:-local}
+      MYSQL_DATABASE: ${DB_NAME:-local}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-local}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DB (internal docker network)
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-local}
+      DB_PASS: ${DB_PASS:-local}
+      DB_NAME: ${DB_NAME:-local}
+
+      # App
+      ENVIRONMENT: prod
+      HTTP_PORT: 2727
+
+      # ESI OAuth (provide these via your deploy env)
+      ESI_APP_ID: ${ESI_APP_ID}
+      ESI_APP_SECRET: ${ESI_APP_SECRET}
+      ESI_APP_REDIRECT: ${ESI_APP_REDIRECT}
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    container_name: frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Provide TLS certs at deploy time:
+      # - ./deploy/nginx/certs/fullchain.pem
+      # - ./deploy/nginx/certs/privkey.pem
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
+
+volumes:
+  db-data:

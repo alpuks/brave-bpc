@@ -6,7 +6,6 @@ COPY . .
 RUN go build -o /go/app
 
 FROM golang:1 AS runner
-COPY ./.env /opt/app/.env
 COPY --from=builder /go/app /opt/app/app
 EXPOSE 2727
 WORKDIR /opt/app

@@ -1,0 +1,20 @@
+# Example systemd unit for running the backend on bare metal.
+# Place an env file at /etc/brave-bpc/backend.env with DB_* + ESI_* vars.
+
+[Unit]
+Description=brave-bpc backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/brave-bpc
+ExecStart=/opt/brave-bpc/app
+Restart=on-failure
+RestartSec=2
+EnvironmentFile=/etc/brave-bpc/backend.env
+
+# If you run behind nginx/https, you will likely want ESI_APP_REDIRECT to match your public URL.
+
+[Install]
+WantedBy=multi-user.target

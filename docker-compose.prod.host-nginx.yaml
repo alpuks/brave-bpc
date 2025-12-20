@@ -1,0 +1,64 @@
+# Production deployment where nginx runs on the host (standalone install).
+# This compose runs ONLY the DB + backend. Host nginx serves the SPA and
+# proxies /api/*, /session, /logout to http://127.0.0.1:2727.
+
+services:
+  db:
+    image: mariadb:10.5
+    container_name: db
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/mysql
+    environment:
+      MYSQL_USER: ${DB_USER:-local}
+      MYSQL_PASSWORD: ${DB_PASS:-local}
+      MYSQL_DATABASE: ${DB_NAME:-local}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-local}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 10s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Bind to localhost only; nginx on the host connects to this.
+      - "127.0.0.1:2727:2727"
+    environment:
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-local}
+      DB_PASS: ${DB_PASS:-local}
+      DB_NAME: ${DB_NAME:-local}
+
+      ENVIRONMENT: prod
+      HTTP_PORT: 2727
+
+      ESI_APP_ID: ${ESI_APP_ID}
+      ESI_APP_SECRET: ${ESI_APP_SECRET}
+      ESI_APP_REDIRECT: ${ESI_APP_REDIRECT}
+
+  # One-shot helper: build the SPA into a host folder for standalone nginx.
+  # Usage:
+  #   docker compose -f docker-compose.prod.host-nginx.yaml run --rm frontend-build
+  frontend-build:
+    build:
+      context: ./frontend
+      target: build
+    profiles: ["tools"]
+    working_dir: /app
+    command: ["sh", "-lc", "rm -rf /out/* && cp -r /app/dist/* /out/"]
+    volumes:
+      - ./deploy/frontend-dist:/out
+
+volumes:
+  db-data:

@@ -1,1 +1,7 @@
 .env
+
+# Local-only agent guidance
+.github/copilot-instructions.md
+
+# Host-nginx production build output
+deploy/frontend-dist/
