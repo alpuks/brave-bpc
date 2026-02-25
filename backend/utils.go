@@ -55,7 +55,10 @@ func newDefaultLogger(env string) *zap.Logger {
 	}
 
 	logLevel := zapcore.InfoLevel
-	if env == "dev" {
+	switch env {
+	case "":
+		fallthrough
+	case "dev":
 		logLevel = zapcore.DebugLevel
 		opts = append(opts, zap.Development())
 	}
@@ -107,33 +110,32 @@ func dbConnectString() string {
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
-var errEnvFile = errors.New("failed to load .env file")
-
 // loadEnv parses the contents of .env and sets any unset environment variables
-func loadEnv() (*runtimeConfig, error) {
-	fp, err := os.Open("./.env")
-	if err != nil {
+func loadEnv(logger *zap.Logger) *runtimeConfig {
+	if fp, err := os.Open("./.env"); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+			logger.Info("ignoring missing .env file", zap.Error(err))
+		} else {
+			logger.Error("error opening .env file", zap.Error(err))
 		}
-		return nil, errors.Join(errEnvFile, err)
-	}
-	defer fp.Close()
+	} else {
+		defer fp.Close()
 
-	env, err := envparse.Parse(fp)
-	if err != nil {
-		return nil, err
-	}
+		env, err := envparse.Parse(fp)
+		if err != nil {
+			logger.Error("error parsing .env file", zap.Error(err))
+		}
 
-	for k, v := range env {
-		setUnsetEnv(k, v)
+		for k, v := range env {
+			setUnsetEnv(k, v)
+		}
 	}
 
 	skewStr := getEnvWithDefault(envJwtSkew, "5m")
 	skew, err := time.ParseDuration(skewStr)
 	if err != nil {
-		skew = time.Second
-		return nil, fmt.Errorf("error parsing jwt skew env var: %w", err)
+		skew = 5 * time.Minute
+		logger.Error("error parsing JWT_SKEW, defaulting to 5m", zap.Error(err))
 	}
 
 	return &runtimeConfig{
@@ -144,7 +146,7 @@ func loadEnv() (*runtimeConfig, error) {
 		migrateDown: os.Getenv(envMigrateDown),
 		httpPort:    getEnvWithDefault(envHttpPort, "2727"),
 		jwtSkew:     skew,
-	}, nil
+	}
 }
 
 // checks if an environment variable has been set.

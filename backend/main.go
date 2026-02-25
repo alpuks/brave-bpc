@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"encoding/gob"
-	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
@@ -71,19 +69,15 @@ type app struct {
 }
 
 func main() {
-	runtimeConfig, err := loadEnv()
-	logger := newDefaultLogger(runtimeConfig.environment)
+	logger := newDefaultLogger(os.Getenv(envEnvironment))
 	defer logger.Sync()
 
-	if errors.Is(err, fs.ErrNotExist) {
-		logger.Info("ignoring missing .env file", zap.Error(err))
-	} else if errors.Is(err, errEnvFile) {
-		err = err.(interface{ Unwrap() []error }).Unwrap()[1]
-		logger.Error("failed to open .env file", zap.Error(err))
-	} else if err != nil {
-		logger.Fatal("failed to parse .env file", zap.Error(err))
+	runtimeConfig := loadEnv(logger)
+	if runtimeConfig.appId == "" || runtimeConfig.appSecret == "" || runtimeConfig.appRedirect == "" {
+		logger.Fatal("ensure ESI_APP_ID, ESI_APP_SECRET, and ESI_APP_REDIRECT are set")
 	}
 
+	var err error
 	app := &app{
 		logger:       logger,
 		sessionStore: newSessionStore(),
