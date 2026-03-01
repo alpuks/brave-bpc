@@ -13,6 +13,14 @@ From https://wiki.bravecollective.com/public/alliance/industry/bpcprogram
 
 Anything that is unreasonable will be rejected. And this is a sliding scale, arbitrary and utterly at the discretion of the BPC Managers. If they blink at the request, they’ll reject it.
 
+## Building
+
+``` sh
+docker build --output ./build --platform linux/arm64 .
+```
+
+This will produce a backend binary and frontend package in the build/ directory ready for upload to a server.
+
 ## Development
 
 Create a development app at [developers.eveonline.com](https://developers.eveonline.com) with the callback URL `http://localhost:2727/login` and following scopes:
