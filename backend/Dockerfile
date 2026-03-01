@@ -1,13 +1,7 @@
-FROM golang:1 AS builder
+FROM golang:1
 WORKDIR /go
-COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
-RUN go build -o /go/app
-
-FROM golang:1 AS runner
-COPY ./.env /opt/app/.env
-COPY --from=builder /go/app /opt/app/app
+RUN go build -o app
 EXPOSE 2727
-WORKDIR /opt/app
 CMD ["./app"]
+
