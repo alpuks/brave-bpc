@@ -6,7 +6,7 @@ on:
     tags: ['*']
 
 env:
-  APPNAME: 'brave-bpc'
+  APPNAME: 'appname'
   TARGET_OS: 'linux'
   TARGET_ARCH: 'arm64'
   RELEASE_VERSION: '0.0.0-development'
@@ -18,14 +18,16 @@ jobs:
       - name: checkout
         uses: actions/checkout@v6
 
-#      - name: get app name
-#        run: ${{ github.REPOSITORY }}
+      - name: get app name
+        run: echo "${{ github.REPOSITORY }}" | cut -d / -f2 | awk '{print "APPNAME="$0}' >> $GITHUB_ENV
+
       - name: get release version
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: set version string
-        run: sed -i '${{ env.APPNAME }}\/0.0.0/${{ env.APPNAME }}\/${{ github.REF_NAME }}/' backend/main.go
+        run: sed -i 's/${{ env.APPNAME }}\/0.0.0/${{ env.APPNAME }}\/${{ github.REF_NAME }}/' backend/main.go
 
+# Build backend
       - name: setup go
         uses: actions/setup-go@v6
         with:
@@ -33,10 +35,15 @@ jobs:
 
       - name: test backend
         run: |
-          pushd backend/
+          cd backend/
           go test ./...
-          popd
 
+      - name: build backend
+        run: |
+          cd backend/
+          GOOS=${{ env.TARGET_OS }} GOARCH=${{ env.TARGET_ARCH }} CGO_ENABLED=0 go build -o ../${{ env.APPNAME }}/${{ env.APPNAME }}.${{ env.TARGET_ARCH }}
+
+# Build frontend
       - name: setup node
         uses: actions/setup-node@v6
         with:
@@ -44,28 +51,20 @@ jobs:
 
       - name: npm ci
         run: |
-          pushd frontend/
+          cd frontend/
           npm ci --legacy-peer-deps
-          popd
 
       - name: test frontend
         run: |
-          pushd frontend/
+          cd frontend/
           npx tsc -b
-          popd
 
       - name: build frontend
         run: |
-          pushd frontend/
+          cd frontend/
           npx vite build
-          popd
 
-      - name: build backend
-        run: |
-          pushd backend/
-          GOOS=${{ env.TARGET_OS }} GOARCH=${{ env.TARGET_ARCH }} CGO_ENABLED=0 go build -o /${{ env.APPNAME }}/${{ env.APPNAME }}.${{ env.TARGET_ARCH }}
-          popd
-
+# Collect and create artifacts for release
       - name: collect and create artifacts
         run: |
           mv frontend/dist/ ${{ env.APPNAME }}/
@@ -77,6 +76,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            brave-bpc-${{ env.RELEASE_VERSION}}.tar.gz
-            brave-bpc-${{ env.RELEASE_VERSION}}.tar.gz.sha256
+            brave-bpc-${{ env.RELEASE_VERSION}}-${{ env.TARGET_ARCH }}.tar.gz
+            brave-bpc-${{ env.RELEASE_VERSION}}-${{ env.TARGET_ARCH }}.tar.gz.sha256
 
