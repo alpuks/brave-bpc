@@ -17,5 +17,6 @@ RUN npx vite build
 FROM scratch
 ARG TARGETOS
 ARG TARGETARCH
-COPY --from=gobuild /go/app /brave-bpc.${TARGETOS}.${TARGETARCH}
-COPY --from=nodebuild /app/dist /dist
+COPY --from=gobuild /go/app /brave-bpc/brave-bpc.${TARGETARCH}
+COPY --from=nodebuild /app/dist /brave-bpc/dist
+
