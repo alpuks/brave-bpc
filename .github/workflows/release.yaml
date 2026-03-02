@@ -1,0 +1,82 @@
+---
+name: Release
+
+on:
+  push:
+    tags: ['*']
+
+env:
+  APPNAME: 'brave-bpc'
+  TARGET_OS: 'linux'
+  TARGET_ARCH: 'arm64'
+  RELEASE_VERSION: '0.0.0-development'
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: checkout
+        uses: actions/checkout@v6
+
+#      - name: get app name
+#        run: ${{ github.REPOSITORY }}
+      - name: get release version
+        run: echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: set version string
+        run: sed -i '${{ env.APPNAME }}\/0.0.0/${{ env.APPNAME }}\/${{ github.REF_NAME }}/' backend/main.go
+
+      - name: setup go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+
+      - name: test backend
+        run: |
+          pushd backend/
+          go test ./...
+          popd
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24.x'
+
+      - name: npm ci
+        run: |
+          pushd frontend/
+          npm ci --legacy-peer-deps
+          popd
+
+      - name: test frontend
+        run: |
+          pushd frontend/
+          npx tsc -b
+          popd
+
+      - name: build frontend
+        run: |
+          pushd frontend/
+          npx vite build
+          popd
+
+      - name: build backend
+        run: |
+          pushd backend/
+          GOOS=${{ env.TARGET_OS }} GOARCH=${{ env.TARGET_ARCH }} CGO_ENABLED=0 go build -o /${{ env.APPNAME }}/${{ env.APPNAME }}.${{ env.TARGET_ARCH }}
+          popd
+
+      - name: collect and create artifacts
+        run: |
+          mv frontend/dist/ ${{ env.APPNAME }}/
+          tar -czvf ${{ env.APPNAME }}-${{ env.RELEASE_VERSION }}-${{ env.TARGET_ARCH }}.tar.gz ${{ env.APPNAME }}/
+          sha256sum ${{ env.APPNAME }}-${{ env.RELEASE_VERSION }}-${{ env.TARGET_ARCH }}.tar.gz > ${{ env.APPNAME }}-${{ env.RELEASE_VERSION }}-${{ env.TARGET_ARCH }}.tar.gz.sha256
+
+      - name: github release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            brave-bpc-${{ env.RELEASE_VERSION}}.tar.gz
+            brave-bpc-${{ env.RELEASE_VERSION}}.tar.gz.sha256
+
