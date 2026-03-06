@@ -118,7 +118,7 @@ AND s.scope IN(`+params.AddParams(roles)+`)
 	}
 
 	if len(missing) > 0 {
-		logger.Error("requested scope(s) not found for toon", zap.Strings("missing_roles", missing))
+		logger.Warn("requested scope(s) not found for toon", zap.Strings("missing_roles", missing))
 	}
 
 	return tsps

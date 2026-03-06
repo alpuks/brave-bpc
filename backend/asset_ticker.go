@@ -31,7 +31,7 @@ var (
 func (app *app) createOauthContext(logger *zap.Logger) context.Context {
 	pair := app.getAdminToken(logger)
 	if len(pair.scope) == 0 {
-		logger.Warn("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter))
+		logger.Error("no available tokens for admin character", zap.Int32("character_id", app.config.AdminCharacter))
 		ctx, cancel := context.WithCancelCause(context.Background())
 		cancel(errCtxCreateFailed)
 		return ctx
@@ -42,12 +42,13 @@ func (app *app) createOauthContext(logger *zap.Logger) context.Context {
 
 func (app *app) ticker(ctx context.Context) {
 	var (
-		logger          = app.logger.Named("ticker")
-		ticker          = time.NewTicker(time.Second)
-		ctxRefreshDelay time.Time
-		esiCtx          context.Context
+		logger        = app.logger.Named("ticker")
+		ticker        = time.NewTicker(time.Second)
+		refreshTicker = time.NewTicker(time.Minute)
+		esiCtx        context.Context
 	)
-	ticker.Stop() // stop the ticker until we get a valid esiCtx
+	app.adminTokenRefreshChan <- struct{}{} // manually trigger a token refresh
+	ticker.Stop()                           // stop the ticker until we get a valid esiCtx
 
 	{
 		var cancel context.CancelCauseFunc
@@ -55,15 +56,11 @@ func (app *app) ticker(ctx context.Context) {
 		cancel(errCtxInitial)
 	}
 
-	refreshToken := func(ctx context.Context, now time.Time) context.Context {
-		if ctxRefreshDelay.After(now) {
-			return ctx
-		}
-
+	refreshToken := func(ctx context.Context) context.Context {
 		logger.Debug("refreshing token", zap.NamedError("cause", context.Cause(ctx)))
-		ctxRefreshDelay = now.Add(time.Minute)
 		ctx = app.createOauthContext(logger)
 		if ctx.Err() == nil {
+			refreshTicker.Stop()
 			ticker.Reset(time.Second)
 		}
 
@@ -76,13 +73,20 @@ func (app *app) ticker(ctx context.Context) {
 			logger.Info("exiting ticker loop")
 			return
 
-		case <-esiCtx.Done():
-			esiCtx = refreshToken(esiCtx, time.Now())
+		case <-refreshTicker.C:
+			esiCtx = refreshToken(esiCtx)
 
 		case <-app.adminTokenRefreshChan:
-			esiCtx = refreshToken(esiCtx, time.Now())
+			esiCtx = refreshToken(esiCtx)
 
 		case <-ticker.C:
+			if esiCtx.Err() != nil {
+				ticker.Stop()
+				refreshTicker.Reset(time.Minute)
+				app.adminTokenRefreshChan <- struct{}{}
+				break
+			}
+
 			var jitter time.Duration
 			switch app.runtimeConfig.environment {
 			case "prod", "production":
