@@ -126,7 +126,7 @@ func main() {
 	baseChain := NewMwChain(app.requestMiddleware)
 	chain := baseChain.Add(app.authMiddlewareFactory(authLevel_Unauthorized))
 	mux.Handle("/", chain.HandleFunc(app.root))
-	mux.Handle("GET /metrics", chain.Handle(promhttp.Handler()))
+	mux.Handle("GET /metrics", baseChain.Add(app.metricsAuth).Handle(promhttp.Handler()))
 	mux.Handle("GET /config", chain.HandleFunc(app.printConfig))
 
 	app.createAuthHandlers(mux, baseChain)
