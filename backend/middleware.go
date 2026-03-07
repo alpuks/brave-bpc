@@ -40,17 +40,13 @@ func (app *app) requestMiddleware(next http.Handler) http.Handler {
 func (app *app) metricsAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
-		if !ok || len(user) == 0 || len(pass) == 0 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if user != os.Getenv("METRICS_USER") ||
-			pass != os.Getenv("METRICS_PASS") {
+		if !ok || len(user) == 0 || len(pass) == 0 ||
+			user != os.Getenv("METRICS_USER") || pass != os.Getenv("METRICS_PASS") {
+			w.Header().Set("WWW-Authenticate", `Basic realm="metrics", charset="UTF-8"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		w.Header().Set("WWW-Authenticate", `Basic realm="metrics", charset="UTF-8"`)
 		next.ServeHTTP(w, r)
 	})
 }
