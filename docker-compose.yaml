@@ -21,7 +21,6 @@ services:
   backend:
     build:
       context: ./backend
-      target: runner
     container_name: backend
     ports:
       - "2727:2727"
