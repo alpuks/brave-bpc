@@ -4,6 +4,22 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 
 const base = process.env.VITE_BACKEND_ORIGIN ?? "http://localhost:2727";
+const extraAllowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
+const allowedHosts = Array.from(
+  new Set([
+    "localhost",
+    "127.0.0.1",
+    ".ngrok-free.dev",
+    ".ngrok-free.app",
+    ".ngrok.app",
+    ".ngrok.dev",
+    ".ngrok.io",
+    ...extraAllowedHosts,
+  ]),
+);
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -59,6 +75,7 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    allowedHosts,
 
     proxy: {
       "/api": {
@@ -70,6 +87,18 @@ export default defineConfig({
         changeOrigin: true,
       },
       "/logout": {
+        target: base,
+        changeOrigin: true,
+      },
+      "/login": {
+        target: base,
+        changeOrigin: true,
+      },
+      "/login/char": {
+        target: base,
+        changeOrigin: true,
+      },
+      "/login/scope": {
         target: base,
         changeOrigin: true,
       },

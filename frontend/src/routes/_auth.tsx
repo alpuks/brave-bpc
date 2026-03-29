@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, useRouter } from "@tanstack/react-router";
 import { Spinner } from "@heroui/react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -7,21 +7,17 @@ export const Route = createFileRoute("/_auth")({
   component: AuthLayout,
 });
 
-function AuthLayout() {
+export function AuthLayout() {
   const { isAuthenticated, isLoading } = useAuth();
+  const router = useRouter();
 
   useEffect(() => {
     if (isLoading || isAuthenticated) {
       return;
     }
 
-    const port = import.meta.env.VITE_BACKEND_PORT ?? "2727";
-    const src = encodeURIComponent(window.location.href);
-    const host = window.location.hostname;
-    const proto = window.location.protocol;
-    const href = `${proto}//${host}:${port}/login?src=${src}`;
-    window.location.assign(href);
-  }, [isAuthenticated, isLoading]);
+    void router.navigate({ to: "/", replace: true });
+  }, [isAuthenticated, isLoading, router]);
 
   if (isLoading) {
     return (

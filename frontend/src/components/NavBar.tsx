@@ -2,6 +2,9 @@ import {
   Navbar,
   NavbarContent,
   NavbarItem,
+  NavbarMenu,
+  NavbarMenuItem,
+  NavbarMenuToggle,
   Link,
   Dropdown,
   DropdownTrigger,
@@ -13,8 +16,10 @@ import {
   User,
 } from "@heroui/react";
 import { useRouter } from "@tanstack/react-router";
+import { type MouseEvent, useMemo, useState } from "react";
 import blackEveImage from "../assets/eve-sso-login-black-small.png";
 import whiteEveImage from "../assets/eve-sso-login-white-small.png";
+import { buildLoginHref } from "../utils/auth";
 import { MoonIcon, SunIcon } from "./Icons";
 import { useTheme } from "../contexts/ThemeContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -22,14 +27,19 @@ import { useAuth } from "../contexts/AuthContext";
 const AuthMap = { 0: "GUEST", 1: "MEMBER", 2: "WORKER", 3: "ADMIN" } as const;
 type AuthLevel = keyof typeof AuthMap;
 
+type NavTo = "/" | "/dashboard" | "/list" | "/requests" | "/admin";
+
 export function NavBar() {
   const authContext = useAuth();
   const isAuthenticated = authContext.isAuthenticated;
   const user = authContext.user;
+  const loginHref = buildLoginHref();
+
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const router = useRouter();
 
-  const makeNavHandler = (to: string) => (event: React.MouseEvent) => {
+  const makeNavHandler = (to: NavTo) => (event: MouseEvent) => {
     if (event.defaultPrevented) return;
 
     // Let the browser handle new-tab/window + non-left clicks.
@@ -38,61 +48,64 @@ export function NavBar() {
       return;
 
     event.preventDefault();
+    setIsMenuOpen(false);
     router.navigate({ to });
   };
 
   const { theme, toggleTheme } = useTheme();
 
+  const navItems = useMemo((): Array<{ label: string; to: NavTo }> => {
+    if (!isAuthenticated) return [];
+
+    const base: Array<{ label: string; to: NavTo }> = [
+      { label: "Dashboard", to: "/dashboard" },
+      { label: "List", to: "/list" },
+      { label: "Requests", to: "/requests" },
+    ];
+
+    return user?.auth_level === 3
+      ? [...base, { label: "Admin", to: "/admin" }]
+      : base;
+  }, [isAuthenticated, user?.auth_level]);
+
   return (
-    <Navbar as="nav" className="bg-gray-800" maxWidth="full">
-      <NavbarContent className="hidden sm:flex gap-4" justify="start">
+    <Navbar
+      as="nav"
+      className="bg-gray-800"
+      maxWidth="full"
+      isMenuOpen={isMenuOpen}
+      onMenuOpenChange={setIsMenuOpen}
+      shouldBlockScroll
+    >
+      <NavbarContent className="gap-3" justify="start">
+        {isAuthenticated ? (
+          <NavbarMenuToggle
+            aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+            className="sm:hidden"
+          />
+        ) : null}
+
         <NavbarBrand>
           <Link
-            href={router.buildLocation({ to: "/" }).href}
-            className="text-2xl font-bold text-white"
+            href="/"
+            className="text-xl font-bold text-white sm:text-2xl"
             onClick={makeNavHandler("/")}
           >
             Brave BPC
           </Link>
         </NavbarBrand>
-        {isAuthenticated && (
-          <>
-            <NavbarItem>
-              <Link
-                href={router.buildLocation({ to: "/dashboard" }).href}
-                onClick={makeNavHandler("/dashboard")}
-              >
-                Dashboard
-              </Link>
-            </NavbarItem>
-            <NavbarItem>
-              <Link
-                href={router.buildLocation({ to: "/list" }).href}
-                onClick={makeNavHandler("/list")}
-              >
-                List
-              </Link>
-            </NavbarItem>
-            <NavbarItem>
-              <Link
-                href={router.buildLocation({ to: "/requests" }).href}
-                onClick={makeNavHandler("/requests")}
-              >
-                Requests
-              </Link>
-            </NavbarItem>
-          </>
-        )}
-        {user?.auth_level === 3 && (
-          <NavbarItem>
-            <Link
-              href={router.buildLocation({ to: "/admin" }).href}
-              onClick={makeNavHandler("/admin")}
-            >
-              Admin
-            </Link>
-          </NavbarItem>
-        )}
+
+        {isAuthenticated ? (
+          <div className="hidden items-center gap-4 sm:flex">
+            {navItems.map((item) => (
+              <NavbarItem key={item.to}>
+                <Link href={item.to} onClick={makeNavHandler(item.to)}>
+                  {item.label}
+                </Link>
+              </NavbarItem>
+            ))}
+          </div>
+        ) : null}
       </NavbarContent>
 
       <NavbarContent as="div" justify="end">
@@ -100,7 +113,7 @@ export function NavBar() {
           isSelected={theme === "dark"}
           color="success"
           endContent={<MoonIcon />}
-          size="lg"
+          size="md"
           startContent={<SunIcon />}
           onChange={() => toggleTheme()}
         ></Switch>
@@ -130,9 +143,9 @@ export function NavBar() {
               <DropdownItem
                 key="logout"
                 color="danger"
-                onClick={() => {
-                  authContext.logout();
-                  router.navigate({ to: "/" });
+                onClick={async () => {
+                  await router.navigate({ to: "/" });
+                  await authContext.logout();
                 }}
               >
                 Log Out
@@ -140,21 +153,32 @@ export function NavBar() {
             </DropdownMenu>
           </Dropdown>
         ) : (
-          <a
-            href={`${window.location.protocol}//${window.location.hostname}:2727/login?src=${window.location.href}`}
-          >
+          <a href={loginHref}>
             <Image
               radius="none"
               width="135"
-              src={
-                window.location.origin +
-                (theme === "dark" ? whiteEveImage : blackEveImage)
-              }
+              src={theme === "dark" ? whiteEveImage : blackEveImage}
               loading="eager"
             />
           </a>
         )}
       </NavbarContent>
+
+      {isAuthenticated ? (
+        <NavbarMenu>
+          {navItems.map((item) => (
+            <NavbarMenuItem key={item.to}>
+              <Link
+                className="w-full"
+                href={item.to}
+                onClick={makeNavHandler(item.to)}
+              >
+                {item.label}
+              </Link>
+            </NavbarMenuItem>
+          ))}
+        </NavbarMenu>
+      ) : null}
     </Navbar>
   );
 }
